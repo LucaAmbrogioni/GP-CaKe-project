@@ -2,6 +2,8 @@ import numpy as np
 import scipy.signal as sig_tools
 from utility import matrix_division
 
+
+
 class gpcake(object):
     #
     def __init__(self):
@@ -19,6 +21,7 @@ class gpcake(object):
                                         "variance": []}
         self.bayesfactors = []
         self.causal_obs_model = None
+        self.parallelthreads = 1
     #
     def initialize_time_parameters(self, time_step, time_period):
         self.time_parameters = {"time_period": time_period,
@@ -240,35 +243,87 @@ class gpcake(object):
         complex_covariance = sig_tools.hilbert(covariance)
         return complex_covariance
     #
+    
+    def __run_analysis_body(self, sample, moving_average_kernels, covariance_matrix, dynamic_polynomials):        
+        (nsources, nfrequencies) = np.shape(sample)        
+        sample_connectivity = np.zeros((nsources, nsources, nfrequencies))
+                
+        x = self.__get_fourier_time_series(sample)
+        Px = self.__get_modified_processes(x, dynamic_polynomials)
+        observation_models = self.__get_observation_models(x, moving_average_kernels)
+        for j in range(0, nsources): # target
+            total_covariance_matrix = self.__get_total_covariance_matrix(covariance_matrix, observation_models, j, self.noise_level)
+            
+            for i in range(0, nsources): # source
+                if j != i:
+                    connectivity_kernel = self.__posterior_kernel_cij(observation_models[i], 
+                                                                      covariance_matrix, 
+                                                                      total_covariance_matrix, 
+                                                                      Px[j])
+                    
+                    time_domain_connectivity_kernel = np.fft.fftshift(np.fft.ifft(np.fft.ifftshift(connectivity_kernel), axis = 0))
+                    sample_connectivity[i, j, :] = np.real(time_domain_connectivity_kernel)
+        return sample_connectivity
+    #  
     def run_analysis(self, data):
         self.__get_frequency_range()
+        if self.parallelthreads > 1:
+            print('Parallel implementation.')            
+            return self.__run_analysis_parallel(data)
+        else:      
+            print('Serial implementation.')
+            dynamic_polynomials = self.__get_dynamic_polynomials()
+    
+            moving_average_kernels = self.__get_moving_average_kernels()
+            covariance_matrix = self.__get_covariance_matrix()
+            (nsamples, nsources, nfrequencies) = np.shape(np.asarray(data))
+            connectivity = np.zeros((nsamples, nsources, nsources, nfrequencies))
+    
+            s_ix = 0
+            for sample in data:                 
+                connectivity[s_ix, :, :, :] = self.__run_analysis_body(sample, moving_average_kernels, covariance_matrix, dynamic_polynomials)
+                s_ix += 1
+            return connectivity
+    #    
+    def __run_analysis_parallel_wrapper(self, parallel_args_struct):
+        return self.__run_analysis_body(sample=parallel_args_struct['sample'], 
+                                        moving_average_kernels=parallel_args_struct['MA'], 
+                                        covariance_matrix=parallel_args_struct['cov'], 
+                                        dynamic_polynomials=parallel_args_struct['dypoly'])
+    #
+    def __run_analysis_parallel(self, data):
+        
         dynamic_polynomials = self.__get_dynamic_polynomials()
 
         moving_average_kernels = self.__get_moving_average_kernels()
         covariance_matrix = self.__get_covariance_matrix()
         (nsamples, nsources, nfrequencies) = np.shape(np.asarray(data))
         connectivity = np.zeros((nsamples, nsources, nsources, nfrequencies))
-
-        s_ix = 0
-        for sample in data: #?
-            x = self.__get_fourier_time_series(sample)
-            Px = self.__get_modified_processes(x, dynamic_polynomials)
-            observation_models = self.__get_observation_models(x, moving_average_kernels)
-            for j in range(0, nsources): # target
-                total_covariance_matrix = self.__get_total_covariance_matrix(covariance_matrix, observation_models, j, self.noise_level)
+        
+        # Initialize parallelization
+        from multiprocessing.dummy import Pool as ThreadPool 
+        pool = ThreadPool(processes=self.parallelthreads)       
+        
+        parallel_args = []      
                 
-                for i in range(0, nsources): # source
-                    if j != i:
-                        connectivity_kernel = self.__posterior_kernel_cij(observation_models[i], 
-                                                                          covariance_matrix, 
-                                                                          total_covariance_matrix, 
-                                                                          Px[j])
-                        
-                        time_domain_connectivity_kernel = np.fft.fftshift(np.fft.ifft(np.fft.ifftshift(connectivity_kernel), axis = 0))
-                        connectivity[s_ix, i, j, :] = np.real(time_domain_connectivity_kernel)
-            s_ix += 1
+        for sample in data: #?
+            parallel_args_struct = {}
+            parallel_args_struct['sample'] = sample
+            parallel_args_struct['MA'] = moving_average_kernels
+            parallel_args_struct['cov'] = covariance_matrix
+            parallel_args_struct['dypoly'] = dynamic_polynomials
+            parallel_args += [parallel_args_struct]
+        
+        # Execute parallel computation
+        parallel_results_list = pool.map(self.__run_analysis_parallel_wrapper, parallel_args)    
+        
+        # Collect results
+        for i in range(0, nsamples):
+            connectivity[i,:,:,:] = parallel_results_list[i]
+        
+        pool.close()
+        pool.join()
         return connectivity
-
     #
     def get_statistic(self, stat, output_index, input_index):
         stat = self.connectivity_statistics[stat][output_index][input_index]
