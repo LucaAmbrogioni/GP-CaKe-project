@@ -7,4 +7,4 @@ The presented code allows for estimation of effective connectivity using Gaussia
 
 #### August 11th, 2017
 
-- Added parallel computation functionality; simply set the parallelthreads attribute of the gpcake() object before executing gpcake.run_analysis(), and computation will be in parallel over both trials and edges.
+- Added parallel computation functionality; simply set the parallelthreads attribute of the gpcake() object before executing gpcake.run_analysis(), and computation will be in parallel over trials.
