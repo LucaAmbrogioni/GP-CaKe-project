@@ -16,12 +16,9 @@ import numpy as np
 Simulation and GP-CaKe packages.
 """
 
-#import os
-#os.chdir('C:/Users/u341138/Dropbox/Projects/GP-CaKe-project')
-
 import simulator as sim
 import gpcake
-#import utility
+import utility
 
 from time import time
 
@@ -40,16 +37,7 @@ def toc():
 
 import argparse
 
-parser = argparse.ArgumentParser()
 
-parser.add_argument('-p', '--processes',
-            action="store", dest="num_processes",
-            help="Number of parallel processes", default="1")
-parser.add_argument('-ntest', action="store", dest="ntest", default="30")
-
-options             = parser.parse_args()
-num_processes       = int(options.num_processes)
-ntrials_test        = int(options.ntest)
 
 
 """
@@ -57,10 +45,9 @@ Simulation parameters. Here, we construct a 2-node graph with one connection (wi
 We create a 4 second time series per node, with a sampling rate of 100 Hz.
 """
 
-p                       = 5
+p                       = 2
 adj_mat                 = np.zeros((p,p))
 adj_mat[0,1]            = 1
-#adj_mat[1,2]            = 1
 connection_strength     = 1.0
 time_step               = 0.01
 time_period             = 4.
@@ -77,7 +64,7 @@ and <ntrials_test> to learn the GP posterior.
 """
 
 ntrials_train                                       = 30
-#ntrials_test                                        = 30
+ntrials_test                                        = 30
 simulation                                          = sim.integroDifferential_simulator()
 print('Generating simulation samples')
 (training_samples, testing_samples, ground_truth)   = simulation.simulate_network_dynamics(ntrials_train, ntrials_test, simulation_params)
@@ -86,7 +73,7 @@ print('Generating simulation samples')
 Plot a few samples to see the generated time series.
 """
 
-#utility.plot_samples(training_samples[0:3])
+utility.plot_samples(training_samples[0:3])
 
 """
 Simulation is done. Time to bake some cake!
@@ -135,19 +122,10 @@ Compute the posteriors for each of the p*(p-1) connections.
 """
 
 print('Computing posterior kernels')
-
-        
-
-tic()
-cake.parallelthreads=num_processes
 connectivity = cake.run_analysis(testing_samples)
-print(toc())
 
-# 1 thread = 3.4s
-# 2 threads = 8.1s
-# 4 threads = 14.6s
 
 """
 Visualize the posterior kernels
 """
-#utility.plot_connectivity(ground_truth, connectivity, time_range, t0=-0.5)
+utility.plot_connectivity(ground_truth, connectivity, time_range, t0=-0.5)
