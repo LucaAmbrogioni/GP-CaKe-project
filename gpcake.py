@@ -292,7 +292,7 @@ class gpcake(object):
             s_ix += 1
         return connectivity
     #
-    def run_analysis(self, data, onlyTrials=True):
+    def run_analysis(self, data, onlyTrials=False):
         self.__get_frequency_range()
         if self.parallelthreads > 1 and not onlyTrials:
             print('Parallel implementation (p = {:d}).'.format(self.parallelthreads))            
