@@ -23,16 +23,10 @@ import numpy as np
 Simulation and GP-CaKe packages.
 """
 
-#import os
-#os.chdir('C:/Users/Max/Dropbox/Projects/GP-CaKe-project')
-
 import simulator as sim
 import gpcake
 import utility
 
-
-
-#importlib.reload(gpcake)
 
 import argparse
 
@@ -159,11 +153,4 @@ connectivity_serial = cake.run_analysis(testing_samples)
 utility.plot_connectivity(ground_truth, connectivity_serial, time_range, t0=-0.5, filename='speedtest_{:d}processes_{:d}nodes_{:d}trials.pdf'.format(1, p, ntrials_test))
 print(utility.toc())
 
-# 1 thread = 3.4s
-# 2 threads = 8.1s
-# 4 threads = 14.6s
-
-"""
-Visualize the posterior kernels
-"""
 
