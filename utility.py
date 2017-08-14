@@ -41,6 +41,8 @@ def plot_samples(samples):
         plt.subplot(1,nsamples,i+1)
         for j in range(0, p):
             plt.plot(np.array(samples)[i,j,:], label='Node {:d}'.format(j+1))
+        plt.xlabel('time (ms / 10)')
+        plt.ylabel('signal amplitude')
         plt.title('Sample {:d}'.format(i+1))
         plt.legend()
     plt.suptitle('A few selected trials')

@@ -207,18 +207,8 @@ class gpcake(object):
         else:
             print("The method for learning the dynamic parameters is currently only implemented for relaxation dynamics")
             raise
-
-    def __posterior_kernel_cij(self, obs_model, cov_matrix, total_cov_matrix, dynamic_modified_fourier_series):
-        """
-        The bread-and-butter of the method.
-        
-        """        
-
-        y = np.matrix(dynamic_modified_fourier_series).T
-        c_ij = cov_matrix * obs_model.H  * matrix_division(divider = total_cov_matrix, divided = y, side = "left", cholesky = "no")
             
-        return np.array(c_ij).flatten()
-   
+    #
     def learn_dynamic_parameters(self, data, dynamic_parameters_range):
         jitter = 10 ** -15 # numerical stability
         if self.dynamic_type is "Relaxation":
@@ -238,6 +228,30 @@ class gpcake(object):
             print("The method for learning the dynamic parameters is currently only implemented for relaxation dynamics")
             raise
     #
+    def __posterior_kernel_cij(self, obs_model, cov_matrix, total_cov_matrix, dynamic_modified_fourier_series):
+        """
+        The bread-and-butter of the method.
+        
+        """        
+
+        y = np.matrix(dynamic_modified_fourier_series).T
+        c_ij = cov_matrix * obs_model.H  * matrix_division(divider = total_cov_matrix, divided = y, side = "left", cholesky = "no")
+            
+        return np.real(np.array(c_ij).flatten())
+    #
+    def __posterior_kernel_cij_temporal(self, obs_model, cov_matrix, total_cov_matrix, dynamic_modified_fourier_series):
+        """
+             The bread-and-butter of the method.
+            
+             """        
+
+        y = np.matrix(dynamic_modified_fourier_series).T
+        c_ij = cov_matrix * obs_model.H  * matrix_division(divider = total_cov_matrix, divided = y, side = "left", cholesky = "no")
+            
+        return np.real(np.fft.fftshift(np.fft.ifft(np.fft.ifftshift(np.array(c_ij).flatten()), axis = 0)))
+    #
+
+    #
     def __squared_exponential_covariance(self, time_lag, length_scale):
         covariance = np.exp(-np.power(time_lag,2)/(2*length_scale**2))/(np.sqrt(2*np.pi)*length_scale)
         complex_covariance = sig_tools.hilbert(covariance)
@@ -256,40 +270,47 @@ class gpcake(object):
             
             for i in range(0, nsources): # source
                 if j != i:
-                    connectivity_kernel = self.__posterior_kernel_cij(observation_models[i], 
-                                                                      covariance_matrix, 
-                                                                      total_covariance_matrix, 
-                                                                      Px[j])
+                    connectivity_kernel = self.__posterior_kernel_cij_temporal(observation_models[i], 
+                                                                               covariance_matrix, 
+                                                                               total_covariance_matrix, 
+                                                                               Px[j])
                     
-                    time_domain_connectivity_kernel = np.fft.fftshift(np.fft.ifft(np.fft.ifftshift(connectivity_kernel), axis = 0))
-                    sample_connectivity[i, j, :] = np.real(time_domain_connectivity_kernel)
+                    sample_connectivity[i, j, :] = connectivity_kernel
         return sample_connectivity
     #  
-    def run_analysis(self, data):
+    def __run_analysis_serial(self, data):
+        dynamic_polynomials = self.__get_dynamic_polynomials()
+    
+        moving_average_kernels = self.__get_moving_average_kernels()
+        covariance_matrix = self.__get_covariance_matrix()
+        (nsamples, nsources, nfrequencies) = np.shape(np.asarray(data))
+        connectivity = np.zeros((nsamples, nsources, nsources, nfrequencies))
+
+        s_ix = 0
+        for sample in data:              
+            connectivity[s_ix, :, :, :] = self.__run_analysis_body(sample, moving_average_kernels, covariance_matrix, dynamic_polynomials)
+            s_ix += 1
+        return connectivity
+    #
+    def run_analysis(self, data, onlyTrials=True):
         self.__get_frequency_range()
-        if self.parallelthreads > 1:
-            print('Parallel implementation.')            
+        if self.parallelthreads > 1 and not onlyTrials:
+            print('Parallel implementation (p = {:d}).'.format(self.parallelthreads))            
+            return self.__run_analysis_parallel_flatloop(data)
+        elif self.parallelthreads > 1 and onlyTrials:
+            print('Parallel implementation (p = {:d}, over trials only).'.format(self.parallelthreads))            
             return self.__run_analysis_parallel(data)
         else:      
             print('Serial implementation.')
-            dynamic_polynomials = self.__get_dynamic_polynomials()
-    
-            moving_average_kernels = self.__get_moving_average_kernels()
-            covariance_matrix = self.__get_covariance_matrix()
-            (nsamples, nsources, nfrequencies) = np.shape(np.asarray(data))
-            connectivity = np.zeros((nsamples, nsources, nsources, nfrequencies))
-    
-            s_ix = 0
-            for sample in data:                 
-                connectivity[s_ix, :, :, :] = self.__run_analysis_body(sample, moving_average_kernels, covariance_matrix, dynamic_polynomials)
-                s_ix += 1
-            return connectivity
+            return self.__run_analysis_serial(data)
+            
     #    
     def __run_analysis_parallel_wrapper(self, parallel_args_struct):
         return self.__run_analysis_body(sample=parallel_args_struct['sample'], 
                                         moving_average_kernels=parallel_args_struct['MA'], 
                                         covariance_matrix=parallel_args_struct['cov'], 
                                         dynamic_polynomials=parallel_args_struct['dypoly'])
+    
     #
     def __run_analysis_parallel(self, data):
         
@@ -325,6 +346,68 @@ class gpcake(object):
         pool.join()
         return connectivity
     #
+    def __posterior_kernel_cij_temporal_parwrap(self, parallel_args_struct):
+        """
+        The bread-and-butter of the method.
+        
+        """       
+            
+        # unpack
+        y = np.matrix(parallel_args_struct['Px_j']).T
+        covariance_matrix = parallel_args_struct['cov']     
+        observation_models = parallel_args_struct['obs_models']
+        i = parallel_args_struct['i']
+        j = parallel_args_struct['j']
+        total_cov_matrix = self.__get_total_covariance_matrix(covariance_matrix, observation_models, j, self.noise_level)   
+        
+        c_ij = covariance_matrix * observation_models[i].H  * matrix_division(divider = total_cov_matrix, divided = y, side = "left", cholesky = "no")
+            
+        return np.real(np.fft.fftshift(np.fft.ifft(np.fft.ifftshift(np.array(c_ij).flatten()), axis = 0)))
+    #
+    def __run_analysis_parallel_flatloop(self, data):
+        dynamic_polynomials = self.__get_dynamic_polynomials()
+
+        moving_average_kernels  = self.__get_moving_average_kernels()
+        covariance_matrix = self.__get_covariance_matrix()
+        (nsamples, nsources, nfrequencies) = np.shape(np.asarray(data))
+        connectivity = np.zeros((nsamples, nsources, nsources, nfrequencies))
+   
+        
+        # Initialize parallelization
+        from multiprocessing.dummy import Pool as ThreadPool 
+        pool = ThreadPool(processes=self.parallelthreads)    
+        
+        parallel_iterable = []      
+      
+          
+        for k, sample in enumerate(data): #?
+            x = self.__get_fourier_time_series(sample)
+            Px = self.__get_modified_processes(x, dynamic_polynomials)
+            observation_models = self.__get_observation_models(x, moving_average_kernels)            
+            for j in range(0, nsources):               
+                for i in range(0, nsources):
+                    if j != i:
+                        parallel_args_struct = {}
+                        parallel_args_struct['cov'] = covariance_matrix
+                        parallel_args_struct['k'] = k
+                        parallel_args_struct['obs_models'] = observation_models
+                        parallel_args_struct['i'] = i
+                        parallel_args_struct['j'] = j
+                        parallel_args_struct['Px_j'] = Px[j]
+                        parallel_iterable += [parallel_args_struct]
+        
+        # Execute parallel computation
+        parallel_results_list = pool.map(self.__posterior_kernel_cij_temporal_parwrap, parallel_iterable)  
+        # todo: properly unwrap this, instead of this ugly hack:
+        for m, result in enumerate(parallel_results_list):            
+            k = parallel_iterable[m]['k']
+            i = parallel_iterable[m]['i']
+            j = parallel_iterable[m]['j']
+            connectivity[k,i,j,:] = result
+        return connectivity
+        
+    #
+    
     def get_statistic(self, stat, output_index, input_index):
         stat = self.connectivity_statistics[stat][output_index][input_index]
         return stat.flatten()
