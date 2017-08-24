@@ -90,23 +90,24 @@ class integroDifferential_simulator(object):
                                                self.time_meshgrid["number_time_points"])]
 
     def ground_truth_conn(self,t,s):
-       return 0.5*(np.sign(t) + 1)*t*np.exp(-t*s)
+        return 0.5*(np.sign(t) + 1)*t*np.exp(-t*s)
 
     def conn_function(self,t, connectivity_relaxation_mat, adj_mat, source, target):
         conn_dynamics = self.ground_truth_conn(t, connectivity_relaxation_mat[source, target])
         return adj_mat[source, target] * conn_dynamics / np.max(conn_dynamics)
         
-    def simulate_network_dynamics(self, ntrials_train, ntrials_test, params):
+    def simulate_network_dynamics(self, 
+                                  ntrials_train, 
+                                  ntrials_test, 
+                                  params, 
+                                  connectivity_relaxation = 1/0.15,
+                                  AR_coefficient          = 0.6):
         adj_mat = params['network']
         time_step = params['time_step']
         time_period = params['time_period']
         connectivity_strength = params['connection_strength']
         p = adj_mat.shape[0]
-        
-        AR_coefficient          = 0.6
         relaxation_coef         = -(AR_coefficient - 1)/time_step 
-        connectivity_relaxation = 1/0.15 
-        
         adj_mat *= connectivity_strength
         connectivity_relaxation_mat = connectivity_relaxation * np.ones((p, p))
         connectivity_relaxation_mat[np.where(np.identity(p)==1)] = 0

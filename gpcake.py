@@ -1,8 +1,13 @@
 import numpy as np
 import scipy.signal as sig_tools
+import scipy.cluster as cluster
+import scipy.spatial as spatial
+import warnings
+import sys
+sys.setrecursionlimit(20000)
+
 from utility import matrix_division
-
-
+import utility 
 
 class gpcake(object):
     #
@@ -31,6 +36,7 @@ class gpcake(object):
                                                                         self.time_parameters["time_step"])
 
         self.time_parameters["time_difference_matrix"] = self.time_meshgrid["time_difference_matrix"]
+        self.__set_frequency_range()
         return
     #
     def extract_block(self, matrix, first_indices, second_indices):
@@ -44,6 +50,222 @@ class gpcake(object):
         for index in range(0, number_sources):
             fourier_time_series += [np.fft.fftshift(np.fft.fft(time_domain_samples[index, :]))]
         return fourier_time_series
+    #
+    def empirical_least_squares_analysis(self, time_domain_trials):
+        ## private functions ##
+        def get_fourier_tensor(time_domain_trials):
+            fourier_tensor = np.zeros(shape = (number_trials, number_sources, number_frequencies), dtype = "complex")
+            for trial_index, trial in enumerate(time_domain_trials):
+                fourier_tensor[trial_index,:,:] = self.__get_fourier_time_series(trial)
+            return fourier_tensor
+        def get_feature_matrices(fourier_tensor, dynamic_polynomials):
+            feature_matrices_list = []
+            for source_index in range(0, number_sources):
+                frequency_resolved_matrices = []
+                for frequency_index, polynomial_value in enumerate(dynamic_polynomials[source_index]):
+                    feature_matrix = np.matrix(fourier_tensor[:,np.arange(0,number_sources) != source_index,frequency_index]/polynomial_value)
+                    frequency_resolved_matrices += [feature_matrix]
+                feature_matrices_list += [frequency_resolved_matrices]
+            return feature_matrices_list
+        def get_least_squares_results(feature_matrices_list, fourier_tensor):
+            ls_result_list = []
+            for source_index, feature_matrices in enumerate(feature_matrices_list):
+                frequency_resolved_ls_results = []
+                for frequency_index, feature_matrix in enumerate(feature_matrices):
+                    inverse_correlation = np.linalg.inv(feature_matrix.H*feature_matrix)
+                    fourier_data = np.matrix(fourier_tensor[:,source_index,frequency_index]).T
+                    ls_estimate = inverse_correlation*feature_matrix.H*fourier_data
+                    predictions = feature_matrix*ls_estimate
+                    residual_variance = np.real(np.sum(np.power(np.abs(fourier_data - predictions),2))/(number_trials - 2))
+                    null_model_residual_variance = np.real(np.sum(np.power(np.abs(fourier_data),2))/(number_trials - 2))
+                    log_likelihood_ratio = np.log(null_model_residual_variance) - np.log(residual_variance)
+                    ls_covariance = inverse_correlation*residual_variance
+                    ls_second_moment = ls_covariance + ls_estimate*ls_estimate.H
+                    frequency_resolved_ls_results += [{"ls_estimate": ls_estimate,
+                                                       "corrected_residual_variance": np.abs(dynamic_polynomials[source_index][frequency_index])**2*residual_variance,
+                                                       "ls_covariance": np.diagonal(ls_covariance),
+                                                       "ls_second_moment": np.diagonal(ls_second_moment),
+                                                       "log_likelihood_ratio": log_likelihood_ratio}]
+                ls_result_list += [frequency_resolved_ls_results]
+            return ls_result_list
+        ##
+        number_trials = len(time_domain_trials)
+        number_sources, number_frequencies = time_domain_trials[0].shape
+        dynamic_polynomials = self.time_parameters["time_step"]*np.array(self.__get_dynamic_polynomials())
+        fourier_tensor = get_fourier_tensor(time_domain_trials)
+        feature_matrices_list = get_feature_matrices(fourier_tensor, dynamic_polynomials)
+        ls_results = get_least_squares_results(feature_matrices_list, fourier_tensor)
+        return ls_results
+    #
+    def empirical_bayes_parameter_fit(self, 
+                                      time_domain_trials):
+        ## private function ##
+        def rearrange_results(least_squares_results, field):
+            ##
+            def correct_index(in_index,out_index):
+                if in_index < out_index:
+                    return in_index
+                else:
+                    return in_index - 1
+            ##
+            kernel_list = []
+            for out_index in range(0,number_sources):
+                kernel_list_row = []
+                for in_index in range(0,number_sources):
+                    if out_index == in_index:
+                        kernel_array = []
+                    else:
+                        kernel = []
+                        corr_in_index = correct_index(in_index,out_index)
+                        for frequency_index in range(0,number_frequencies):
+                            input_results = least_squares_results[out_index][frequency_index][field]
+                            if type(input_results) is np.float64:
+                                kernel += [np.real(input_results)]
+                            else:
+                                kernel += [np.real(input_results[corr_in_index])]
+                        kernel_array = np.array(kernel)
+                    kernel_list_row += [kernel_array]
+                kernel_list += [kernel_list_row]  
+            return kernel_list 
+        #
+        def get_attribute_matrices(result_matrices):
+            ##
+            def fit_gaussian(empirical_kernel, 
+                         grid_size = 6000):
+                ## private lambdas ##
+                unzip = lambda lst: zip(*lst)
+                deviation_function = lambda x,y: np.sum(np.abs(x - y))
+                normalize = lambda x: x/np.sum(x)
+                smoothing_function = lambda x,l: np.exp(-np.power(x,2)/(2*l**2))/(np.sqrt(np.pi*2*l**2))
+                ## function body ##
+                if len(empirical_kernel) == 0:
+                    return []
+                else:
+                    frequencies, values = unzip([(freq, val) 
+                                                 for (freq,val) in zip(self.frequency_range, empirical_kernel) 
+                                                 if frequency_filter(freq, freq_bound)])
+                    scale_range = np.linspace(10**-4,freq_bound,grid_size)
+                    deviations = [deviation_function(normalize(values), smoothing_function(frequencies,l))
+                                  for l in scale_range]
+                    optimal_scale = scale_range[np.argmin(deviations)]
+                    return optimal_scale
+            def get_scalar_matrix(kernel_matrix):
+                reduce_kernel = lambda kernel: [val 
+                                                for (freq, val) in zip(self.frequency_range,kernel) 
+                                                if frequency_filter(freq,freq_bound/3)]
+                get_scalar = lambda kernel: np.sum(reduce_kernel(kernel))
+                scalar_matrix = utility.nested_map(get_scalar, kernel_matrix)
+                return scalar_matrix
+            symmetrize = lambda A: A + np.transpose(A)
+            ##
+            strength_matrix = np.array(get_scalar_matrix(result_matrices["ls_second_moment"]))
+            np.fill_diagonal(strength_matrix, 0.5)
+            
+            residual_matrix = np.array(get_scalar_matrix(result_matrices["corrected_residual_variance"]))
+            np.fill_diagonal(residual_matrix , 1)
+            empirical_ls_estimate_matrix = np.array(get_scalar_matrix(utility.nested_map(lambda x: np.power(np.abs(x),2),
+                                                                                         result_matrices["ls_estimate"])))
+            np.fill_diagonal(empirical_ls_estimate_matrix , 0)
+            effect_size_matrix = np.divide(empirical_ls_estimate_matrix,residual_matrix)
+            
+            log_likelihood_matrix = np.array(get_scalar_matrix(result_matrices["log_likelihood_ratio"]))
+            np.fill_diagonal(log_likelihood_matrix, 0.)
+            
+            scale_matrix = np.array(utility.nested_map(fit_gaussian, result_matrices["ls_second_moment"]))
+            np.fill_diagonal(scale_matrix, 0)
+            
+            symmetric_scale_matrix = (symmetrize(strength_matrix*scale_matrix)/(symmetrize(strength_matrix)))
+            return {"scale": symmetric_scale_matrix.tolist(), 
+                    "connectivity_strength": strength_matrix.tolist(),
+                     "log_likelihood_ratio": log_likelihood_matrix.tolist(),
+                     "effect_size": effect_size_matrix.tolist()}
+        #
+        def get_attribute_centroid_matrix(dic_attribute_matrices):
+            ## private functions ##
+            def replace_with_centroid(centroids, 
+                                      attributes_sdt, 
+                                      list_attribute_matrices):
+                rescale = lambda x: np.divide(x,attributes_sdt)
+                distance = lambda x,y: np.linalg.norm(np.array(x)-np.array(y))
+                closest_centroid = lambda x: np.multiply(centroids[np.argmin([distance(rescale(x),c) 
+                                                                   for c in centroids]),:],attributes_sdt)
+                quantized_matrix = [map(closest_centroid, row)
+                                    for row in utility.nested_zip(*list_attribute_matrices)]
+                quantized_matrix = utility.fill_diagonal(quantized_matrix, [])
+                return quantized_matrix
+            flat_list = lambda lst: [item 
+                                     for index1,sublist in enumerate(lst) 
+                                     for index2,item in enumerate(sublist)
+                                     if index1 != index2]
+            def standardize(data_array):
+                standardized_array = np.zeros(data_array.shape)
+                attributes_sdt  = np.array([np.std(row) for row in data_array]) 
+                for attribute_index, scale_factor in enumerate(attributes_sdt):
+                    standardized_array[attribute_index,:] = data_array[attribute_index,:]/scale_factor
+                return (standardized_array, attributes_sdt)
+            #
+            ## method body ##
+            list_attribute_keys = dic_attribute_matrices.keys()
+            list_attribute_matrices = dic_attribute_matrices.values()
+            flat_matrices = map(flat_list,list_attribute_matrices)
+            standardized_data, attributes_sdt = standardize(np.array(flat_matrices))
+            standardized_centroids,_ = cluster.vq.kmeans(np.transpose(standardized_data), 2)
+            attribute_centroid_matrix = replace_with_centroid(standardized_centroids, 
+                                                              attributes_sdt,
+                                                              list_attribute_matrices)
+            return (attribute_centroid_matrix, list_attribute_keys)
+        #
+        def get_structural_connectivity_matrix(attribute_centroid_matrix, list_attribute_keys):
+            ## private functions ##
+            def classify_edge(x):                
+                if all([criterion(x) for criterion in criteria]):
+                    return 1
+                elif any([criterion(x) for criterion in criteria]):
+                    warning.warn(message = "The connectivity criterion was not decisive", action = "once")
+                    return 1
+                else:
+                    return 0
+            def get_nested_minimum(index, attribute_centroid_matrix):                
+                minimum_value = float("inf")
+                filled_matrix = utility.fill_diagonal(attribute_centroid_matrix, tuple_size*[minimum_value])
+                return utility.nested_foldRight(lambda X,y: min(X[index], y),
+                                                min,
+                                                minimum_value,
+                                                filled_matrix)
+                
+            ##
+            tuple_size = len(list_attribute_keys)
+            strength_index = list_attribute_keys.index("connectivity_strength") 
+            minimum_strength = get_nested_minimum(strength_index, attribute_centroid_matrix)
+            strength_criterion = lambda x: x[strength_index]>minimum_strength
+            
+            effect_size_index = list_attribute_keys.index("effect_size")
+            minimum_effect_size = get_nested_minimum(effect_size_index, attribute_centroid_matrix)
+            effect_size_criterion = lambda x: x[effect_size_index]>minimum_effect_size
+            
+            log_lk_index = list_attribute_keys.index("log_likelihood_ratio")
+            minimum_log_lk = get_nested_minimum(log_lk_index, attribute_centroid_matrix)
+            log_lk_criterion = lambda x: x[log_lk_index]>minimum_log_lk
+            
+            criteria = [strength_criterion, effect_size_criterion, log_lk_criterion]
+            filled_matrix = utility.fill_diagonal(attribute_centroid_matrix, tuple_size*[-float("inf")])
+            structural_connectivity_matrix = utility.nested_map(classify_edge, filled_matrix)
+            #structural_connectivity_matrix = utility.fill_diagonal(structural_connectivity_matrix, 0.)
+            return structural_connectivity_matrix
+            
+        frequency_filter = lambda freq, freq_bound: ((freq > -freq_bound) & (freq < freq_bound))
+        ## function body ##
+        number_sources, number_frequencies = time_domain_trials[0].shape 
+        freq_bound = np.max(np.abs(self.frequency_range))/5.
+        ##
+        ls_results = self.empirical_least_squares_analysis(time_domain_trials)
+        fields_list = ["ls_second_moment", "log_likelihood_ratio","corrected_residual_variance","ls_estimate"]
+        result_matrices = {field: rearrange_results(ls_results, field)
+                           for field in fields_list}
+        dic_attribute_matrices = get_attribute_matrices(result_matrices)
+        attribute_centroid_matrix, list_attribute_keys = get_attribute_centroid_matrix(dic_attribute_matrices)
+        structural_connectivity_matrix = get_structural_connectivity_matrix(attribute_centroid_matrix, list_attribute_keys)
+        return (attribute_centroid_matrix, structural_connectivity_matrix)
     #
     def __get_observation_models(self, fourier_time_series, moving_average_kernels):
         observation_models = []
@@ -110,17 +332,18 @@ class gpcake(object):
         return total_covariance_matrix
     #
     def __get_dynamic_polynomials(self):
+        frequency_range = self.__get_frequency_range()
         if self.dynamic_type is "Relaxation":
             dynamic_polynomials = []
             for constant in self.dynamic_parameters["relaxation_constants"]:
-                dynamic_polynomials += [constant - 1j*self.frequency_range]
+                dynamic_polynomials += [constant - 1j*frequency_range]
             return dynamic_polynomials
         elif self.dynamic_type is "Oscillation":
             dynamic_polynomials = []
             for process_index in range(0,self.dynamic_parameters["number_sources"]):
                 relaxation_constant = self.dynamic_parameters["relaxation_constants"][process_index]
                 frequency = self.dynamic_parameters["frequency"][process_index]
-                dynamic_polynomials += [-self.frequency_range**2 - 1j*relaxation_constant*self.frequency_range + frequency**2]
+                dynamic_polynomials += [-self.frequency_range**2 - 1j*relaxation_constant*frequency_range + frequency**2]
             return dynamic_polynomials
         else:
             print("The requested dynamics is currently not implemented")
@@ -129,7 +352,7 @@ class gpcake(object):
     def __get_moving_average_kernels(self):
         moving_average_kernels = []
         for constant in self.dynamic_parameters["moving_average_time_constants"]:
-           moving_average_kernels += [1. - 1./(2*np.pi*(constant - 1j*self.frequency_range))]
+            moving_average_kernels += [1. - 1./(2*np.pi*(constant - 1j*self.frequency_range))]
         return moving_average_kernels
     #
     def __set_frequency_range(self):
@@ -412,8 +635,3 @@ class gpcake(object):
         stat = self.connectivity_statistics[stat][output_index][input_index]
         return stat.flatten()
     #        
-
-
-
-
-

@@ -1,6 +1,9 @@
 
 import numpy as np
 import matplotlib.pyplot as plt
+from copy import deepcopy
+import sys
+sys.setrecursionlimit(20000)
 
 def plot_connectivity(ground_truth, connectivity, time_range, t0):
     ylim_max = 1.2 * np.max(ground_truth)
@@ -84,3 +87,37 @@ def step(x, step_point, side):
 
 def is_pos_def(x):
     return np.all(np.linalg.eigvals(x)>0)
+
+def nested_zip(*list_matrices):
+    zipped_matrix = []
+    for first_index,_ in enumerate(list_matrices[0]):
+        rows_list = []
+        for matrix in list_matrices:
+            rows_list += [matrix[first_index]]
+        zipped_row = zip(*rows_list)
+        zipped_matrix += [zipped_row]
+    return zipped_matrix  
+
+def fill_diagonal(matrix, entry):    
+    filled_matrix = [deepcopy(row) for row in matrix]    
+    for index in range(0, len(filled_matrix)):
+        filled_matrix[index][index] = entry
+    return filled_matrix
+
+def nested_map(function, matrix):
+    return [map(function, row) for row in matrix]
+
+def nested_reduce(function, matrix):
+    return reduce(function, [reduce(function,row) for row in matrix])
+
+def foldRight(function, initial_value, lst):
+    if len(lst) == 0:
+        return initial_value
+    else:
+        return function(lst[0], foldRight(function, initial_value, lst[1:]))
+
+def nested_foldRight(first_function, second_function, initial_value, matrix):
+    return reduce(second_function, [foldRight(first_function, initial_value, row) for row in matrix])
+    
+
+
