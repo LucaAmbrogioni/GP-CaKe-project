@@ -163,6 +163,7 @@ class gpcake(object):
             
             residual_matrix = np.array(get_scalar_matrix(result_matrices["corrected_residual_variance"]))
             np.fill_diagonal(residual_matrix , 1)
+            
             empirical_ls_estimate_matrix = np.array(get_scalar_matrix(utility.nested_map(lambda x: np.power(np.abs(x),2),
                                                                                          result_matrices["ls_estimate"])))
             np.fill_diagonal(empirical_ls_estimate_matrix , 0)
@@ -172,13 +173,15 @@ class gpcake(object):
             np.fill_diagonal(log_likelihood_matrix, 0.)
             
             scale_matrix = np.array(utility.nested_map(fit_gaussian, result_matrices["ls_second_moment"]))
-            np.fill_diagonal(scale_matrix, 0)
-            
+            np.fill_diagonal(scale_matrix, 0)            
             symmetric_scale_matrix = (symmetrize(strength_matrix*scale_matrix)/(symmetrize(strength_matrix)))
+            
             return {"scale": symmetric_scale_matrix.tolist(), 
                     "connectivity_strength": strength_matrix.tolist(),
-                     "log_likelihood_ratio": log_likelihood_matrix.tolist(),
-                     "effect_size": effect_size_matrix.tolist()}
+                    "log_likelihood_ratio": log_likelihood_matrix.tolist(),
+                    "effect_size": effect_size_matrix.tolist(),
+                    "residuals": residual_matrix.tolist()
+                   }
         #
         def get_attribute_centroid_matrix(dic_attribute_matrices):
             ## private functions ##
@@ -199,19 +202,19 @@ class gpcake(object):
                                      if index1 != index2]
             def standardize(data_array):
                 standardized_array = np.zeros(data_array.shape)
-                attributes_sdt  = np.array([np.std(row) for row in data_array]) 
-                for attribute_index, scale_factor in enumerate(attributes_sdt):
-                    standardized_array[attribute_index,:] = data_array[attribute_index,:]/scale_factor
-                return (standardized_array, attributes_sdt)
+                attributes_std  = np.array([np.std(row) for row in data_array]) 
+                for attribute_index, scale_factor in enumerate(attributes_std):
+                    standardized_array[attribute_index,:] = data_array[attribute_index,:] / scale_factor
+                return (standardized_array, attributes_std)
             #
             ## method body ##
             list_attribute_keys = dic_attribute_matrices.keys()
             list_attribute_matrices = dic_attribute_matrices.values()
-            flat_matrices = map(flat_list,list_attribute_matrices)
-            standardized_data, attributes_sdt = standardize(np.array(flat_matrices))
+            flat_matrices = map(flat_list, list_attribute_matrices)
+            standardized_data, attributes_std = standardize(np.array(flat_matrices))
             standardized_centroids,_ = cluster.vq.kmeans(np.transpose(standardized_data), 2)
             attribute_centroid_matrix = replace_with_centroid(standardized_centroids, 
-                                                              attributes_sdt,
+                                                              attributes_std,
                                                               list_attribute_matrices)
             return (attribute_centroid_matrix, list_attribute_keys)
         #
@@ -231,8 +234,7 @@ class gpcake(object):
                 return utility.nested_foldRight(lambda X,y: min(X[index], y),
                                                 min,
                                                 minimum_value,
-                                                filled_matrix)
-                
+                                                filled_matrix)                
             ##
             tuple_size = len(list_attribute_keys)
             strength_index = list_attribute_keys.index("connectivity_strength") 
@@ -250,13 +252,59 @@ class gpcake(object):
             criteria = [strength_criterion, effect_size_criterion, log_lk_criterion]
             filled_matrix = utility.fill_diagonal(attribute_centroid_matrix, tuple_size*[-float("inf")])
             structural_connectivity_matrix = utility.nested_map(classify_edge, filled_matrix)
-            #structural_connectivity_matrix = utility.fill_diagonal(structural_connectivity_matrix, 0.)
             return structural_connectivity_matrix
-            
+        #
+        def filter_attribute(attribute_centroid_matrix, 
+                             list_attribute_keys, 
+                             structural_connectivity_matrix, 
+                             attribute,
+                             connectivity_filter):            
+            attr_index = list_attribute_keys.index(attribute)
+            attr_matrix = utility.nested_map(  lambda L: L[attr_index],
+                                                utility.fill_diagonal(attribute_centroid_matrix, 
+                                                                      len(list_attribute_keys)*[0])
+                                             )
+            if connectivity_filter:
+                return [item 
+                        for index1,sublist in enumerate(attr_matrix) 
+                        for index2, item in enumerate(sublist)
+                        if structural_connectivity_matrix[index1][index2]
+                       ]
+            else:
+                return [item 
+                        for index1,sublist in enumerate(attr_matrix) 
+                        for index2, item in enumerate(sublist)
+                        if index1 != index2
+                       ]
+        #
+        def get_time_scale(attribute_centroid_matrix, 
+                           list_attribute_keys, 
+                           structural_connectivity_matrix, 
+                           connectivity_filter=False):   
+            spectral_scales = filter_attribute(attribute_centroid_matrix, 
+                                               list_attribute_keys, 
+                                               structural_connectivity_matrix, 
+                                               'scale',
+                                               connectivity_filter)
+            temporal_scales = np.divide(1.0, spectral_scales) 
+            return np.mean(temporal_scales)
+        #
+        def get_noise_level(attribute_centroid_matrix, 
+                           list_attribute_keys, 
+                           structural_connectivity_matrix, 
+                           connectivity_filter=False):  
+            noise_levels = filter_attribute(attribute_centroid_matrix, 
+                                               list_attribute_keys, 
+                                               structural_connectivity_matrix, 
+                                               'residuals',
+                                               connectivity_filter)     
+            print noise_levels
+            return np.median(noise_levels)
+        #            
         frequency_filter = lambda freq, freq_bound: ((freq > -freq_bound) & (freq < freq_bound))
         ## function body ##
         number_sources, number_frequencies = time_domain_trials[0].shape 
-        freq_bound = np.max(np.abs(self.frequency_range))/5.
+        freq_bound = np.max(np.abs(self.frequency_range)) / 5.
         ##
         ls_results = self.empirical_least_squares_analysis(time_domain_trials)
         fields_list = ["ls_second_moment", "log_likelihood_ratio","corrected_residual_variance","ls_estimate"]
@@ -264,8 +312,23 @@ class gpcake(object):
                            for field in fields_list}
         dic_attribute_matrices = get_attribute_matrices(result_matrices)
         attribute_centroid_matrix, list_attribute_keys = get_attribute_centroid_matrix(dic_attribute_matrices)
-        structural_connectivity_matrix = get_structural_connectivity_matrix(attribute_centroid_matrix, list_attribute_keys)
-        return (attribute_centroid_matrix, structural_connectivity_matrix)
+        
+        structural_connectivity_matrix = get_structural_connectivity_matrix(attribute_centroid_matrix, list_attribute_keys)        
+        
+        time_scale = get_time_scale(attribute_centroid_matrix, 
+                                    list_attribute_keys, 
+                                    structural_connectivity_matrix,
+                                    connectivity_filter=False)
+        
+        noise_level = get_noise_level(attribute_centroid_matrix, 
+                                      list_attribute_keys, 
+                                      structural_connectivity_matrix,
+                                      connectivity_filter=False)
+        
+        return {'time_scale': time_scale, 
+                'structural_connectivity': np.array(structural_connectivity_matrix),
+                'noise_level': noise_level,
+               };
     #
     def __get_observation_models(self, fourier_time_series, moving_average_kernels):
         observation_models = []

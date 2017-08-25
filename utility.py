@@ -13,7 +13,7 @@ def plot_connectivity(ground_truth, connectivity, time_range, t0):
     plotrange = np.arange(x0, n, 1)
     (ntrials,p,_,_) = connectivity.shape
 
-    plt.figure(figsize=(8,4))
+    plt.figure(figsize=(12,8))
     for i in range(0, p):
         for j in range(0, p):
             if i != j:
