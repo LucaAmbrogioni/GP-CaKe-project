@@ -184,11 +184,11 @@ class gpcake(object):
             
             symmetric_scale_matrix = (symmetrize(strength_matrix*scale_matrix)/(symmetrize(strength_matrix)))
             
-            return {"scale": symmetric_scale_matrix.tolist(), 
-                    "connectivity_strength": strength_matrix.tolist(),
-                    "log_likelihood_ratio": log_likelihood_matrix.tolist(),
-                    "effect_size": effect_size_matrix.tolist(),
-                    "residuals": residual_matrix.tolist()
+            return {"scale":                  symmetric_scale_matrix.tolist(), 
+                    "connectivity_strength":  strength_matrix.tolist(),
+                    "log_likelihood_ratio":   log_likelihood_matrix.tolist(),
+                    "effect_size":            effect_size_matrix.tolist(),
+                    "residuals":              residual_matrix.tolist()
                    }
         #
         def get_attribute_centroid_matrix(dic_attribute_matrices):
@@ -205,12 +205,12 @@ class gpcake(object):
                 quantized_matrix = utility.fill_diagonal(quantized_matrix, [])
                 return quantized_matrix
             flat_list = lambda lst: [item 
-                                     for index1,sublist in enumerate(lst) 
-                                     for index2,item in enumerate(sublist)
+                                     for index1, sublist in enumerate(lst) 
+                                     for index2, item in enumerate(sublist)
                                      if index1 != index2]
             def standardize(data_array):
                 standardized_array = np.zeros(data_array.shape)
-                attributes_std  = np.array([np.std(row) for row in data_array]) 
+                attributes_std = np.array([np.std(row) for row in data_array]) 
                 for attribute_index, scale_factor in enumerate(attributes_std):
                     standardized_array[attribute_index,:] = data_array[attribute_index,:] / scale_factor
                 return (standardized_array, attributes_std)

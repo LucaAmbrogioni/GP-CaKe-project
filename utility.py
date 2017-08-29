@@ -17,9 +17,7 @@ def estimation_error(ground_truth, connectivity):
                     y = connectivity[trial,i,j,:]
                     mse_scores += [mse(x, y)]
     return mse_scores
-            
-    
-
+#
 def plot_connectivity(ground_truth, connectivity, time_range, t0):
     ylim_max = 1.2 * np.max(ground_truth)
     ylim_min = -1.0 * np.max(ground_truth)
@@ -49,7 +47,7 @@ def plot_connectivity(ground_truth, connectivity, time_range, t0):
     plt.legend(bbox_to_anchor=(1.05, 0), loc='upper center', borderaxespad=0.)
     plt.suptitle('Mean connectivity')
     plt.draw()
-
+#
 def plot_samples(samples):
     nsamples = len(samples)
     (p,_) = samples[0].shape
@@ -65,7 +63,7 @@ def plot_samples(samples):
         plt.legend()
     plt.suptitle('A few selected trials')
     plt.draw()
-
+#
 def matrix_division(divider, divided, side, cholesky):
     X = np.matrix(divided)
     if cholesky is "yes":
