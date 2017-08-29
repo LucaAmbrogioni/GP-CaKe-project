@@ -8,6 +8,7 @@ sys.setrecursionlimit(20000)
 
 from utility import matrix_division
 import utility 
+import diagnostics
 
 class gpcake(object):
     #
@@ -97,8 +98,7 @@ class gpcake(object):
         ls_results = get_least_squares_results(feature_matrices_list, fourier_tensor)
         return ls_results
     #
-    def empirical_bayes_parameter_fit(self, 
-                                      time_domain_trials):
+    def empirical_bayes_parameter_fit(self, time_domain_trials, show_diagnostics=False):
         ## private function ##
         def rearrange_results(least_squares_results, field):
             ##
@@ -173,7 +173,15 @@ class gpcake(object):
             np.fill_diagonal(log_likelihood_matrix, 0.)
             
             scale_matrix = np.array(utility.nested_map(fit_gaussian, result_matrices["ls_second_moment"]))
-            np.fill_diagonal(scale_matrix, 0)            
+            np.fill_diagonal(scale_matrix, 0)     
+            
+            if show_diagnostics:
+                diagnostics.plot_scale_fit(result_matrices["ls_second_moment"], 
+                                           scale_matrix, 
+                                           self.frequency_range, 
+                                           freq_bound                                           
+                                           )
+            
             symmetric_scale_matrix = (symmetrize(strength_matrix*scale_matrix)/(symmetrize(strength_matrix)))
             
             return {"scale": symmetric_scale_matrix.tolist(), 
@@ -216,15 +224,18 @@ class gpcake(object):
             attribute_centroid_matrix = replace_with_centroid(standardized_centroids, 
                                                               attributes_std,
                                                               list_attribute_matrices)
+            if show_diagnostics:
+                diagnostics.plot_distances(standardized_data, standardized_centroids)                
             return (attribute_centroid_matrix, list_attribute_keys)
         #
         def get_structural_connectivity_matrix(attribute_centroid_matrix, list_attribute_keys):
             ## private functions ##
-            def classify_edge(x):                
-                if all([criterion(x) for criterion in criteria]):
+            def classify_edge(x):
+                criteria_list = [criterion(x) for criterion in criteria]
+                if all(criteria_list):
                     return 1
-                elif any([criterion(x) for criterion in criteria]):
-                    warning.warn(message = "The connectivity criterion was not decisive", action = "once")
+                elif any(criteria_list):
+                    warnings.warn(message = "The connectivity criterion was not decisive")
                     return 1
                 else:
                     return 0
@@ -252,6 +263,9 @@ class gpcake(object):
             criteria = [strength_criterion, effect_size_criterion, log_lk_criterion]
             filled_matrix = utility.fill_diagonal(attribute_centroid_matrix, tuple_size*[-float("inf")])
             structural_connectivity_matrix = utility.nested_map(classify_edge, filled_matrix)
+            # Only three criteria to decide on, and they don't always seem to be enough. 
+            # Why not use the cluster labels as structure directly?
+            
             return structural_connectivity_matrix
         #
         def filter_attribute(attribute_centroid_matrix, 
@@ -297,8 +311,7 @@ class gpcake(object):
                                                list_attribute_keys, 
                                                structural_connectivity_matrix, 
                                                'residuals',
-                                               connectivity_filter)     
-            print noise_levels
+                                               connectivity_filter) 
             return np.median(noise_levels)
         #            
         frequency_filter = lambda freq, freq_bound: ((freq > -freq_bound) & (freq < freq_bound))
@@ -307,7 +320,7 @@ class gpcake(object):
         freq_bound = np.max(np.abs(self.frequency_range)) / 5.
         ##
         ls_results = self.empirical_least_squares_analysis(time_domain_trials)
-        fields_list = ["ls_second_moment", "log_likelihood_ratio","corrected_residual_variance","ls_estimate"]
+        fields_list = ["ls_second_moment", "log_likelihood_ratio", "corrected_residual_variance", "ls_estimate"]
         result_matrices = {field: rearrange_results(ls_results, field)
                            for field in fields_list}
         dic_attribute_matrices = get_attribute_matrices(result_matrices)

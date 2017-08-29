@@ -5,6 +5,24 @@ from copy import deepcopy
 import sys
 sys.setrecursionlimit(20000)
 
+def estimation_error(ground_truth, connectivity):
+    mse = lambda x, y: np.mean(np.power(x-y, 2))
+    
+    ntrials,p,_,n = connectivity.shape
+    
+    mse_scores = []
+    
+    for trial in range(0, ntrials):
+        for i in range(0, p):
+            for j in range(0, p):
+                if i != j:
+                    x = ground_truth[:,i,j]
+                    y = connectivity[trial,i,j,:]
+                    mse_scores += [mse(x, y)]
+    return mse_scores
+            
+    
+
 def plot_connectivity(ground_truth, connectivity, time_range, t0):
     ylim_max = 1.2 * np.max(ground_truth)
     ylim_min = -1.0 * np.max(ground_truth)
