@@ -6,12 +6,9 @@ import sys
 sys.setrecursionlimit(20000)
 
 def estimation_error(ground_truth, connectivity):
-    mse = lambda x, y: np.mean(np.power(x-y, 2))
-    
-    ntrials,p,_,n = connectivity.shape
-    
-    mse_scores = []
-    
+    mse = lambda x, y: np.mean(np.power(x-y, 2))    
+    ntrials,p,_,n = connectivity.shape    
+    mse_scores = []    
     for trial in range(0, ntrials):
         for i in range(0, p):
             for j in range(0, p):
