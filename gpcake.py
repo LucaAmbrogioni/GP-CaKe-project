@@ -8,7 +8,7 @@ sys.setrecursionlimit(20000)
 
 from utility import matrix_division
 import utility 
-#import diagnostics
+import diagnostics
 
 class gpcake(object):
     #
@@ -159,7 +159,6 @@ class gpcake(object):
             symmetrize = lambda A: A + np.transpose(A)
             ##
             strength_matrix = np.array(get_scalar_matrix(result_matrices["ls_second_moment"]))
-            print strength_matrix
             np.fill_diagonal(strength_matrix, 0.5)
             
             residual_matrix = np.array(get_scalar_matrix(result_matrices["corrected_residual_variance"]))
