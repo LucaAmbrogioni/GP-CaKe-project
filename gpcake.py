@@ -203,7 +203,7 @@ class gpcake(object):
                 rescale = lambda x: np.divide(x,attributes_std)
                 distance = lambda x,y: np.linalg.norm(np.array(x)-np.array(y))
                 closest_centroid = lambda x: np.multiply(centroids[np.argmin([distance(rescale(x),c) 
-                                                                   for c in centroids]),:],attributes_sdt)
+                                                                   for c in centroids]),:],attributes_std)
                 quantized_matrix = [map(closest_centroid, row)
                                     for row in utility.nested_zip(*list_attribute_matrices)]
                 quantized_matrix = utility.fill_diagonal(quantized_matrix, [])

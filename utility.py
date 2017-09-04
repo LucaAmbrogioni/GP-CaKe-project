@@ -1,69 +1,10 @@
 
 import numpy as np
-import matplotlib.pyplot as plt
 from copy import deepcopy
 import sys
 sys.setrecursionlimit(20000)
 
-def estimation_error(ground_truth, connectivity):
-    mse = lambda x, y: np.mean(np.power(x-y, 2))    
-    ntrials,p,_,n = connectivity.shape    
-    mse_scores = []    
-    for trial in range(0, ntrials):
-        for i in range(0, p):
-            for j in range(0, p):
-                if i != j:
-                    x = ground_truth[:,i,j]
-                    y = connectivity[trial,i,j,:]
-                    mse_scores += [mse(x, y)]
-    return mse_scores
-#
-def plot_connectivity(ground_truth, connectivity, time_range, t0):
-    ylim_max = 1.2 * np.max(ground_truth)
-    ylim_min = -1.0 * np.max(ground_truth)
-    x0 = np.where(time_range < t0)[0][-1]
-    n = ground_truth.shape[0]
-    plotrange = np.arange(x0, n, 1)
-    (ntrials,p,_,_) = connectivity.shape
 
-    plt.figure(figsize=(12,8))
-    for i in range(0, p):
-        for j in range(0, p):
-            if i != j:
-                plt.subplot(p, p, i * p + j + 1)
-                plt.plot(time_range[plotrange], ground_truth[plotrange, i, j], label='Ground truth', color='r')
-                ax = plt.gca()
-                mean = np.mean(connectivity[:, i, j, plotrange], axis=0)
-                std = np.std(connectivity[:, i, j, plotrange], axis=0)
-                intv = 1.96 * std / np.sqrt(ntrials)
-                plt.plot(time_range[plotrange], mean, color='green', label='GP-CaKe')
-                ax.fill_between(time_range[plotrange], mean - intv, mean + intv, facecolor='green', alpha=0.2)
-                ax.axis('tight')
-                ax.axvline(x=0.0, linestyle='--', color='black', label='Zero lag')
-                ax.set_xlim([t0, 2.0])
-                ax.set_ylim([ylim_min, ylim_max])
-                ax.set_xlabel('Time lag')
-                ax.set_ylabel('Connectivity amplitude')
-    plt.legend(bbox_to_anchor=(1.05, 0), loc='upper center', borderaxespad=0.)
-    plt.suptitle('Mean connectivity')
-    plt.draw()
-#
-def plot_samples(samples):
-    nsamples = len(samples)
-    (p,_) = samples[0].shape
-
-    plt.figure(figsize=(nsamples*5, 4))
-    for i in range(0, nsamples):
-        plt.subplot(1,nsamples,i+1)
-        for j in range(0, p):
-            plt.plot(np.array(samples)[i,j,:], label='Node {:d}'.format(j+1))
-        plt.xlabel('time (ms / 10)')
-        plt.ylabel('signal amplitude')
-        plt.title('Sample {:d}'.format(i+1))
-        plt.legend()
-    plt.suptitle('A few selected trials')
-    plt.draw()
-#
 def matrix_division(divider, divided, side, cholesky):
     X = np.matrix(divided)
     if cholesky is "yes":
@@ -87,7 +28,7 @@ def matrix_division(divider, divided, side, cholesky):
             print("The side should be either left or right")
             return
     return result
-
+#
 def heaviside(x):
     return 0.5*(np.sign(x) + 1)
     
