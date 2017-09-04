@@ -8,7 +8,7 @@ sys.setrecursionlimit(20000)
 
 from utility import matrix_division
 import utility 
-import diagnostics
+#import diagnostics
 
 class gpcake(object):
     #
@@ -80,7 +80,7 @@ class gpcake(object):
                     residual_variance = np.real(np.sum(np.power(np.abs(fourier_data - predictions),2))/(number_trials - 2))
                     null_model_residual_variance = np.real(np.sum(np.power(np.abs(fourier_data),2))/(number_trials - 2))
                     log_likelihood_ratio = np.log(null_model_residual_variance) - np.log(residual_variance)
-                    ls_covariance = inverse_correlation*residual_variance
+                    ls_covariance = inverse_correlation*float(residual_variance)
                     ls_second_moment = ls_covariance + ls_estimate*ls_estimate.H
                     frequency_resolved_ls_results += [{"ls_estimate": ls_estimate,
                                                        "corrected_residual_variance": np.abs(dynamic_polynomials[source_index][frequency_index])**2*residual_variance,
@@ -159,20 +159,24 @@ class gpcake(object):
             symmetrize = lambda A: A + np.transpose(A)
             ##
             strength_matrix = np.array(get_scalar_matrix(result_matrices["ls_second_moment"]))
+            print strength_matrix
             np.fill_diagonal(strength_matrix, 0.5)
             
             residual_matrix = np.array(get_scalar_matrix(result_matrices["corrected_residual_variance"]))
-            np.fill_diagonal(residual_matrix , 1)
+            np.fill_diagonal(residual_matrix, 1)
             
             empirical_ls_estimate_matrix = np.array(get_scalar_matrix(utility.nested_map(lambda x: np.power(np.abs(x),2),
-                                                                                         result_matrices["ls_estimate"])))
-            np.fill_diagonal(empirical_ls_estimate_matrix , 0)
+                                                                                         result_matrices["ls_estimate"],
+                                                                                         ignore_diagonal=True)))
+            np.fill_diagonal(empirical_ls_estimate_matrix, 0)
             effect_size_matrix = np.divide(empirical_ls_estimate_matrix,residual_matrix)
             
             log_likelihood_matrix = np.array(get_scalar_matrix(result_matrices["log_likelihood_ratio"]))
             np.fill_diagonal(log_likelihood_matrix, 0.)
             
-            scale_matrix = np.array(utility.nested_map(fit_gaussian, result_matrices["ls_second_moment"]))
+            scale_matrix = np.array(utility.nested_map(fit_gaussian, 
+                                                       result_matrices["ls_second_moment"], 
+                                                       ignore_diagonal=True))
             np.fill_diagonal(scale_matrix, 0)     
             
             if show_diagnostics:
@@ -194,9 +198,9 @@ class gpcake(object):
         def get_attribute_centroid_matrix(dic_attribute_matrices):
             ## private functions ##
             def replace_with_centroid(centroids, 
-                                      attributes_sdt, 
+                                      attributes_std, 
                                       list_attribute_matrices):
-                rescale = lambda x: np.divide(x,attributes_sdt)
+                rescale = lambda x: np.divide(x,attributes_std)
                 distance = lambda x,y: np.linalg.norm(np.array(x)-np.array(y))
                 closest_centroid = lambda x: np.multiply(centroids[np.argmin([distance(rescale(x),c) 
                                                                    for c in centroids]),:],attributes_sdt)
@@ -270,49 +274,29 @@ class gpcake(object):
         #
         def filter_attribute(attribute_centroid_matrix, 
                              list_attribute_keys, 
-                             structural_connectivity_matrix, 
-                             attribute,
-                             connectivity_filter):            
+                             attribute):            
             attr_index = list_attribute_keys.index(attribute)
-            attr_matrix = utility.nested_map(  lambda L: L[attr_index],
-                                                utility.fill_diagonal(attribute_centroid_matrix, 
-                                                                      len(list_attribute_keys)*[0])
-                                             )
-            if connectivity_filter:
-                return [item 
-                        for index1,sublist in enumerate(attr_matrix) 
-                        for index2, item in enumerate(sublist)
-                        if structural_connectivity_matrix[index1][index2]
-                       ]
-            else:
-                return [item 
-                        for index1,sublist in enumerate(attr_matrix) 
-                        for index2, item in enumerate(sublist)
-                        if index1 != index2
-                       ]
+            attr_matrix = utility.nested_map(lambda L: L[attr_index],
+                                             attribute_centroid_matrix,
+                                             ignore_diagonal = True)
+            return attr_matrix
         #
         def get_time_scale(attribute_centroid_matrix, 
-                           list_attribute_keys, 
-                           structural_connectivity_matrix, 
-                           connectivity_filter=False):   
+                           list_attribute_keys):   
             spectral_scales = filter_attribute(attribute_centroid_matrix, 
                                                list_attribute_keys, 
-                                               structural_connectivity_matrix, 
-                                               'scale',
-                                               connectivity_filter)
-            temporal_scales = np.divide(1.0, spectral_scales) 
-            return np.mean(temporal_scales)
+                                               'scale')
+            temporal_scales = utility.nested_map(lambda x: 1./x,
+                                                  spectral_scales, 
+                                                  ignore_diagonal = True)
+            return temporal_scales
         #
         def get_noise_level(attribute_centroid_matrix, 
-                           list_attribute_keys, 
-                           structural_connectivity_matrix, 
-                           connectivity_filter=False):  
+                           list_attribute_keys):  
             noise_levels = filter_attribute(attribute_centroid_matrix, 
-                                               list_attribute_keys, 
-                                               structural_connectivity_matrix, 
-                                               'residuals',
-                                               connectivity_filter) 
-            return np.median(noise_levels)
+                                            list_attribute_keys, 
+                                            'residuals') 
+            return noise_levels
         #            
         frequency_filter = lambda freq, freq_bound: ((freq > -freq_bound) & (freq < freq_bound))
         ## function body ##
@@ -329,14 +313,10 @@ class gpcake(object):
         structural_connectivity_matrix = get_structural_connectivity_matrix(attribute_centroid_matrix, list_attribute_keys)        
         
         time_scale = get_time_scale(attribute_centroid_matrix, 
-                                    list_attribute_keys, 
-                                    structural_connectivity_matrix,
-                                    connectivity_filter=False)
+                                    list_attribute_keys)
         
         noise_level = get_noise_level(attribute_centroid_matrix, 
-                                      list_attribute_keys, 
-                                      structural_connectivity_matrix,
-                                      connectivity_filter=False)
+                                      list_attribute_keys)
         
         return {'time_scale': time_scale, 
                 'structural_connectivity': np.array(structural_connectivity_matrix),
@@ -402,7 +382,7 @@ class gpcake(object):
         index = 0
         for model in observation_models: 
             if index != output_time_series_index:
-               total_covariance_matrix += model*covariance_matrix*model.H
+                total_covariance_matrix += model*covariance_matrix*model.H
             index += 1
         total_covariance_matrix += np.matrix(np.identity(number_frequencies))* np.power(noise_level,2)
         return total_covariance_matrix

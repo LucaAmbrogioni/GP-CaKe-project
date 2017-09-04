@@ -117,8 +117,12 @@ def fill_diagonal(matrix, entry):
         filled_matrix[index][index] = entry
     return filled_matrix
 
-def nested_map(function, matrix):
-    return [map(function, row) for row in matrix]
+def nested_map(function, matrix, ignore_diagonal = False):
+    apply_function = lambda item,index1,index2: function(item) if ((not ignore_diagonal) or index1 != index2) else item
+    return [[apply_function(item,row_index,column_index) 
+             for column_index, item in enumerate(row)]
+            for row_index, row in enumerate(matrix)
+            ]
 
 def nested_reduce(function, matrix):
     return reduce(function, [reduce(function,row) for row in matrix])
