@@ -417,19 +417,18 @@ class gpcake(object):
         covariance_matrices = utility.nested_map(get_covariance_matrix, self.parameter_matrices, ignore_diagonal=True)
         return covariance_matrices
     #
-    def __get_total_covariance_matrix(self, covariance_matrices, observation_models, output_time_series_index, noise_level):
+    def __get_total_covariance_matrix(self, covariance_matrices, observation_models, output_time_series_index):
         """
         K_f = [\sum_i Gamma_i K Gamma^H_i + sigma^2 I]
-        """
-        if noise_level == None:
-            noise_level = self.noise_level            
+        """           
         total_covariance_matrix = 0.
         number_frequencies = len(covariance_matrices[0][1])
         for input_index, model in enumerate(observation_models): 
             if input_index != output_time_series_index:
                 covariance_matrix = covariance_matrices[output_time_series_index][input_index]
                 total_covariance_matrix += model*covariance_matrix*model.H
-        total_covariance_matrix += np.matrix(np.identity(number_frequencies)) * np.power(noise_level, 2)
+        total_covariance_matrix += (np.matrix(np.identity(number_frequencies)) *
+                                    np.power(self.noise_vector[output_time_series_index], 2))
         return total_covariance_matrix
     #
     def __get_dynamic_polynomials(self):
@@ -586,10 +585,9 @@ class gpcake(object):
             Px = self.__get_modified_processes(x, dynamic_polynomials)
             observation_models = self.__get_observation_models(x, moving_average_kernels)
             for j in range(0, nsources): # target
-                total_covariance_matrix = self.__get_total_covariance_matrix(covariance_matrices, # pxp matrices of temporal covariances
+                total_covariance_matrix = self.__get_total_covariance_matrix(covariance_matrices, 
                                                                              observation_models, 
-                                                                             j, 
-                                                                             self.noise_vector[j]) # check this!
+                                                                             j) 
                 for i in range(0, nsources): # source
                     if self.structural_constraint[i,j]:
                         connectivity_kernel = self.__posterior_kernel_cij_temporal(observation_models[i], 
