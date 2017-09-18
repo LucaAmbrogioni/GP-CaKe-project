@@ -2,6 +2,7 @@
 import numpy as np
 from copy import deepcopy
 import sys
+import time
 sys.setrecursionlimit(20000)
 
 
@@ -76,6 +77,16 @@ def foldRight(function, initial_value, lst):
 
 def nested_foldRight(first_function, second_function, initial_value, matrix):
     return reduce(second_function, [foldRight(first_function, initial_value, row) for row in matrix])
-    
 
+# Courtesy of https://stackoverflow.com/questions/5849800/tic-toc-functions-analog-in-python: 
+def tic():
+    #Homemade version of matlab tic and toc functions    
+    global startTime_for_tictoc
+    startTime_for_tictoc = time.time()
+
+def toc():
+    if 'startTime_for_tictoc' in globals():
+        print "Elapsed time is " + str(time.time() - startTime_for_tictoc) + " seconds."
+    else:
+        print "Toc: start time not set"
 

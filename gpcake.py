@@ -104,7 +104,7 @@ class gpcake(object):
         ls_results = get_least_squares_results(feature_matrices_list, fourier_tensor)
         return ls_results
     #
-    def empirical_bayes_parameter_fit(self, time_domain_trials, show_diagnostics=False):
+    def empirical_bayes_parameter_fit(self, time_domain_trials, learn_structural_constraint=True, show_diagnostics=False):
         ## private function ##
         def rearrange_results(least_squares_results, field):
             ##
@@ -139,9 +139,9 @@ class gpcake(object):
             def fit_gaussian(empirical_kernel, 
                          grid_size = 6000):
                 ## private lambdas ##
-                unzip = lambda lst: zip(*lst)
+                unzip              = lambda lst: zip(*lst)
                 deviation_function = lambda x,y: np.sum(np.abs(x - y))
-                normalize = lambda x: x/np.sum(x)
+                normalize          = lambda x: x/np.sum(x)
                 smoothing_function = lambda x,l: np.exp(-np.power(x,2)/(2*l**2))/(np.sqrt(np.pi*2*l**2))
                 ## function body ##
                 if len(empirical_kernel) == 0:
@@ -302,6 +302,7 @@ class gpcake(object):
         #            
         frequency_filter = lambda freq, freq_bound: ((freq > -freq_bound) & (freq < freq_bound))
         ## function body ##
+        print 'Training GP CaKe parameters with empirical Bayes.' 
         number_sources, number_frequencies = time_domain_trials[0].shape 
         freq_bound = np.max(np.abs(self.frequency_range)) / 5.
         ##
@@ -313,18 +314,37 @@ class gpcake(object):
         dic_attribute_matrices = get_attribute_matrices(result_matrices)
         attribute_centroid_matrix, list_attribute_keys = get_attribute_centroid_matrix(dic_attribute_matrices)
         
-        structural_connectivity_matrix = get_structural_connectivity_matrix(attribute_centroid_matrix, list_attribute_keys)        
-        
         time_scale = get_time_scale(attribute_centroid_matrix, 
                                     list_attribute_keys)
         
-        noise_level = get_noise_level(attribute_centroid_matrix, 
-                                      list_attribute_keys)
+        scale2shift_proportion = 1.        
+        time_shift = utility.nested_map(lambda x: scale2shift_proportion*x, time_scale, ignore_diagonal=True)
         
-        return {'time_scale': time_scale, 
-                'structural_connectivity': np.array(structural_connectivity_matrix),
-                'noise_level': noise_level,
-               };
+        noise_level = get_noise_level(attribute_centroid_matrix, 
+                                      list_attribute_keys)        
+        noise_level = utility.fill_diagonal(noise_level, float('nan'))
+        noise_level_vector = map(lambda noise_list: np.nanmean(noise_list), noise_level)
+        
+        scale2spectral_proportion = 100.
+        spectral_smoothing = utility.nested_map(lambda x: scale2spectral_proportion*x, time_scale, ignore_diagonal=True)
+        
+        parameter_matrices = utility.nested_zip(time_scale, 
+                                                time_shift, 
+                                                spectral_smoothing)
+        
+        self.parameter_matrices = parameter_matrices
+        self.noise_vector = noise_level_vector
+        
+        if learn_structural_constraint:
+            structural_connectivity_matrix = get_structural_connectivity_matrix(attribute_centroid_matrix, list_attribute_keys)   
+            self.structural_constraint = np.array(structural_connectivity_matrix)
+            print 'Connectivity constraint: enabled.'
+        else:
+            print 'Connectivity constraint: disabled.'
+                
+        
+        print 'Empirical Bayes procedure complete.'
+
     ###
     ### End of empirical Bayes parameter fitting
     ###
@@ -353,44 +373,63 @@ class gpcake(object):
             index += 1
         return x
     #
-    def __get_covariance_matrix(self, time_scale=None, spectral_smoothing=None):
-        if time_scale is None:
-            time_scale = self.covariance_parameters["time_scale"]
-        if spectral_smoothing is None:
-            spectral_smoothing = self.covariance_parameters["spectral_smoothing"]
-        time_shift = self.covariance_parameters["time_shift"]
-
-        # Frequency grid
-        freq_grid_x, freq_grid_y = np.meshgrid(self.frequency_range, self.frequency_range)
-        # Stationary part
-        stationary_covariance_function = lambda f,l,tau: np.exp(-1j*tau*f-f**2/(2*l**2))
-        spectral_width = 2*np.pi*(1/time_scale)
-        diagonal_covariance_matrix = np.matrix(np.diag(stationary_covariance_function(self.frequency_range, spectral_width, time_shift)))
-        # Nonstationary part
-        smoothing_covariance_matrix = np.matrix(self.__squared_exponential_covariance(freq_grid_x - freq_grid_y, spectral_smoothing))
-        # Final covariance matrix
-        covariance_matrix = diagonal_covariance_matrix*smoothing_covariance_matrix*diagonal_covariance_matrix.H
-        #
-        if self.covariance_parameters["causal"] is "yes":
+    #def __get_covariance_matrix(self, time_scale=None, spectral_smoothing=None):
+    #    if time_scale is None:
+    #        time_scale = self.covariance_parameters["time_scale"]
+    #    if spectral_smoothing is None:
+    #        spectral_smoothing = self.covariance_parameters["spectral_smoothing"]
+    #    time_shift = self.covariance_parameters["time_shift"]        
+    #    # Frequency grid
+    #    freq_grid_x, freq_grid_y = np.meshgrid(self.frequency_range, self.frequency_range)
+    #    # Stationary part
+    #    stationary_covariance_function = lambda f,l,tau: np.exp(-1j*tau*f-f**2/(2*l**2))
+    #    spectral_width = 2*np.pi*(1/time_scale)
+    #    diagonal_covariance_matrix = np.matrix(np.diag(stationary_covariance_function(self.frequency_range, spectral_width, time_shift)))
+    #    # Nonstationary part
+    #    smoothing_covariance_matrix = np.matrix(self.__squared_exponential_covariance(freq_grid_x - freq_grid_y, spectral_smoothing))
+    #    # Final covariance matrix
+    #    covariance_matrix = diagonal_covariance_matrix*smoothing_covariance_matrix*diagonal_covariance_matrix.H
+    #    #
+    #    if self.covariance_parameters["causal"] is "yes":
+    #        return covariance_matrix
+    #    else:
+    #        return np.real(covariance_matrix)
+        
+    def __get_covariance_matrices(self):     
+        ## private functions
+        def get_covariance_matrix(parameter_tuple):
+            stationary_covariance_function = lambda f,l,tau: np.exp(-1j*tau*f-f**2/(2*l**2))        
+            time_scale = parameter_tuple[0]
+            time_shift = parameter_tuple[1]
+            spectral_smoothing = parameter_tuple[2]
+            spectral_width = 2*np.pi*(1/time_scale)        
+            diagonal_covariance_matrix = np.matrix(np.diag(stationary_covariance_function(self.frequency_range, 
+                                                                                          spectral_width, 
+                                                                                          time_shift)))
+            # Nonstationary part
+            smoothing_covariance_matrix = np.matrix(self.__squared_exponential_covariance(freq_grid_x - freq_grid_y, 
+                                                                                          spectral_smoothing))
+            # Final covariance matrix
+            covariance_matrix = diagonal_covariance_matrix*smoothing_covariance_matrix*diagonal_covariance_matrix.H
             return covariance_matrix
-        else:
-            return np.real(covariance_matrix)
-
+        # Frequency grid
+        freq_grid_x, freq_grid_y = np.meshgrid(self.frequency_range, self.frequency_range)        
+        covariance_matrices = utility.nested_map(get_covariance_matrix, self.parameter_matrices, ignore_diagonal=True)
+        return covariance_matrices
     #
-    def __get_total_covariance_matrix(self, covariance_matrix, observation_models, output_time_series_index, noise_level):
+    def __get_total_covariance_matrix(self, covariance_matrices, observation_models, output_time_series_index, noise_level):
         """
         K_f = [\sum_i Gamma_i K Gamma^H_i + sigma^2 I]
         """
         if noise_level == None:
-            noise_level = self.noise_level#            
+            noise_level = self.noise_level            
         total_covariance_matrix = 0.
-        number_frequencies = covariance_matrix.shape[0]
-        index = 0
-        for model in observation_models: 
-            if index != output_time_series_index:
+        number_frequencies = len(covariance_matrices[0][1])
+        for input_index, model in enumerate(observation_models): 
+            if input_index != output_time_series_index:
+                covariance_matrix = covariance_matrices[output_time_series_index][input_index]
                 total_covariance_matrix += model*covariance_matrix*model.H
-            index += 1
-        total_covariance_matrix += np.matrix(np.identity(number_frequencies))* np.power(noise_level,2)
+        total_covariance_matrix += np.matrix(np.identity(number_frequencies)) * np.power(noise_level, 2)
         return total_covariance_matrix
     #
     def __get_dynamic_polynomials(self):
@@ -517,8 +556,7 @@ class gpcake(object):
         """
         The bread-and-butter of the method.
         
-        """        
-
+        """      
         y = np.matrix(dynamic_modified_fourier_series).T
         c_ij = cov_matrix * obs_model.H  * matrix_division(divider = total_cov_matrix, divided = y, side = "left", cholesky = "no")
             
@@ -538,9 +576,9 @@ class gpcake(object):
         complex_covariance = sig_tools.hilbert(covariance)
         return complex_covariance
     #
-    def run_analysis(self, data, onlyTrials=False):
+    def run_analysis(self, data, onlyTrials=False, show_diagnostics=False):
         ## private functions
-        def run_analysis_body(sample, moving_average_kernels, covariance_matrix, dynamic_polynomials):        
+        def run_analysis_body(sample):        
             #(nsources, nfrequencies) = np.shape(sample)        
             sample_connectivity = np.zeros((nsources, nsources, nfrequencies))
 
@@ -548,14 +586,14 @@ class gpcake(object):
             Px = self.__get_modified_processes(x, dynamic_polynomials)
             observation_models = self.__get_observation_models(x, moving_average_kernels)
             for j in range(0, nsources): # target
-                total_covariance_matrix = self.__get_total_covariance_matrix(covariance_matrix, 
+                total_covariance_matrix = self.__get_total_covariance_matrix(covariance_matrices, # pxp matrices of temporal covariances
                                                                              observation_models, 
                                                                              j, 
-                                                                             self.noise_level)
+                                                                             self.noise_vector[j]) # check this!
                 for i in range(0, nsources): # source
                     if self.structural_constraint[i,j]:
                         connectivity_kernel = self.__posterior_kernel_cij_temporal(observation_models[i], 
-                                                                                   covariance_matrix, 
+                                                                                   covariance_matrices[i][j], # check this! [i,j] or [j,i]??
                                                                                    total_covariance_matrix, 
                                                                                    Px[j])
 
@@ -565,10 +603,7 @@ class gpcake(object):
         def run_analysis_serial(data):            
             connectivity = np.zeros((nsamples, nsources, nsources, nfrequencies))
             for s_ix, sample in enumerate(data):              
-                connectivity[s_ix, :, :, :] = run_analysis_body(sample, 
-                                                                moving_average_kernels, 
-                                                                covariance_matrix, 
-                                                                dynamic_polynomials)
+                connectivity[s_ix, :, :, :] = run_analysis_body(sample)
             return connectivity
         #
         def run_analysis_parallel(data):
@@ -591,7 +626,7 @@ class gpcake(object):
                 parallel_args_struct = {}
                 parallel_args_struct['sample'] = sample
                 parallel_args_struct['MA'] = moving_average_kernels
-                parallel_args_struct['cov'] = covariance_matrix
+                parallel_args_struct['cov'] = covariance_matrices
                 parallel_args_struct['dypoly'] = dynamic_polynomials
                 parallel_args += [parallel_args_struct]
 
@@ -612,20 +647,19 @@ class gpcake(object):
                 """
                 The bread-and-butter of the method.
 
-                """       
-
+                """     
                 # unpack
                 y = np.matrix(parallel_args_struct['Px_j']).T
-                covariance_matrix = parallel_args_struct['cov']     
+                covariance_matrices = parallel_args_struct['cov']     
                 observation_models = parallel_args_struct['obs_models']
                 i = parallel_args_struct['i']
                 j = parallel_args_struct['j']
-                total_cov_matrix = self.__get_total_covariance_matrix(covariance_matrix, 
+                total_cov_matrix = self.__get_total_covariance_matrix(covariance_matrices, 
                                                                       observation_models, 
                                                                       j, 
                                                                       self.noise_level)   
 
-                c_ij = covariance_matrix * observation_models[i].H  \
+                c_ij = covariance_matrices * observation_models[i].H  \
                        * matrix_division(divider = total_cov_matrix, divided = y, side = "left", cholesky = "no")
 
                 return np.real(np.fft.fftshift(np.fft.ifft(np.fft.ifftshift(np.array(c_ij).flatten()), axis = 0)))
@@ -647,7 +681,7 @@ class gpcake(object):
                     for i in range(0, nsources):
                         if self.structural_constraint[i,j]:
                             parallel_args_struct = {}
-                            parallel_args_struct['cov'] = covariance_matrix
+                            parallel_args_struct['cov'] = covariance_matrices[i]
                             parallel_args_struct['k'] = k
                             parallel_args_struct['obs_models'] = observation_models
                             parallel_args_struct['i'] = i
@@ -664,29 +698,47 @@ class gpcake(object):
                 j = parallel_iterable[m]['j']
                 connectivity[k,i,j,:] = result
             return connectivity
-        ## function body
+        ## function body of run_analysis()
         
         dynamic_polynomials = self.__get_dynamic_polynomials()
-
         moving_average_kernels = self.__get_moving_average_kernels()
-        covariance_matrix = self.__get_covariance_matrix()
+        covariance_matrices = self.__get_covariance_matrices()
         (nsamples, nsources, nfrequencies) = np.shape(np.asarray(data))
         self.__get_frequency_range()
         
         if self.structural_constraint is None:
             self.structural_constraint = np.ones(shape=(nsources, nsources)) - np.eye(nsources)   
+            
+        if show_diagnostics:  
+            print 'GP CaKe parameters:'
+            print '\nTime scales (nu_ij):'
+            print np.array(utility.fill_diagonal(utility.nested_map(lambda x: x[0], self.parameter_matrices), 0))
+            print '\nTime shifts (t_ij):'
+            print np.array(utility.fill_diagonal(utility.nested_map(lambda x: x[1], self.parameter_matrices), 0))
+            print '\nSpectral smoothing: (theta_ij)' 
+            print np.array(utility.fill_diagonal(utility.nested_map(lambda x: x[2], self.parameter_matrices), 0))
+            print '\nNoise levels (sigma_i):'
+            print np.array(self.noise_vector)
+            print '\nConnectivity constraint (G_ij):'
+            print self.structural_constraint
+            
+            utility.tic()
         
+        connectivity = None
         if self.parallelthreads > 1 and not onlyTrials:
             print('Parallel implementation (p = {:d}).'.format(self.parallelthreads))            
-            return run_analysis_parallel_flatloop(data)
+            connectivity = run_analysis_parallel_flatloop(data)
         elif self.parallelthreads > 1 and onlyTrials:
             print('Parallel implementation (p = {:d}, over trials only).'.format(self.parallelthreads))            
-            return run_analysis_parallel(data)
+            connectivity = run_analysis_parallel(data)
         else:      
-            print('Serial implementation.')
-            return run_analysis_serial(data)
-
-    
+            #print('Serial implementation.')
+            connectivity = run_analysis_serial(data)
+        
+        if show_diagnostics:
+            utility.toc()
+        return connectivity
+    #
     def get_statistic(self, stat, output_index, input_index):
         stat = self.connectivity_statistics[stat][output_index][input_index]
         return stat.flatten()
