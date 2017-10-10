@@ -1,4 +1,6 @@
 import numpy as np
+import matplotlib
+matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import scipy as sp
 
@@ -27,6 +29,7 @@ def plot_distances(edges, centroids):
     plt.xlabel('Distance to first centroid')
     plt.ylabel('Distance to second centroid')
     plt.title('Distances of edges to edge centroids.')
+    plt.savefig('edge2centroid_distances.pdf')
 #    
 def plot_scale_fit(second_moment_matrices, scale_matrix, freq_range, freq_bound):
     
@@ -47,11 +50,12 @@ def plot_scale_fit(second_moment_matrices, scale_matrix, freq_range, freq_bound)
                 ax = plt.gca()
                 ax.plot(frequencies, normalize( kernel ), label='Empirical kernel')
                 ax.plot(frequencies, smoothing_function( frequencies, scale_matrix[i][j] ), label='Gaussian fit')
-                ax.set_xlabel('Frequencies')
-                ax.set_ylabel('Magnitude')
-                ax.set_title('1 / scale = {:.3f}'.format(1 / scale_matrix[i][j]))
+                #ax.set_xlabel('Frequencies')
+                #ax.set_ylabel('Magnitude')
+                #ax.set_title('1 / scale = {:.3f}'.format(1 / scale_matrix[i][j]))
     plt.legend(bbox_to_anchor=(1.5, 0.5), loc='upper center', borderaxespad=0.)
     plt.suptitle('Gaussian distribution fitted to spectrum to determine scale (i.e. temporal smoothing).')
+    plt.savefig('scale_fit.pdf')
 #
 def plot_samples(samples):
     nsamples = len(samples)

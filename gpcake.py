@@ -63,7 +63,7 @@ class gpcake(object):
         def get_fourier_tensor(time_domain_trials):
             fourier_tensor = np.zeros(shape = (number_trials, number_sources, number_frequencies), dtype = "complex")
             for trial_index, trial in enumerate(time_domain_trials):
-                fourier_tensor[trial_index,:,:] = self.__get_fourier_time_series(trial)
+                fourier_tensor[trial_index,:,:] = np.squeeze(np.array(self.__get_fourier_time_series(trial))) # this returns a list instead of an ndarray
             return fourier_tensor
         def get_feature_matrices(fourier_tensor, dynamic_polynomials):
             feature_matrices_list = []
