@@ -141,6 +141,7 @@ class gpcake(object):
                 ## private lambdas ##
                 unzip              = lambda lst: zip(*lst)
                 deviation_function = lambda x,y: np.sum(np.abs(x - y))
+                shift              = lambda x: x - np.median(np.sort(x)[:5])
                 normalize          = lambda x: x/np.sum(x)
                 smoothing_function = lambda x,l: np.exp(-np.power(x,2)/(2*l**2))/(np.sqrt(np.pi*2*l**2))
                 ## function body ##
@@ -151,7 +152,7 @@ class gpcake(object):
                                                  for (freq,val) in zip(self.frequency_range, empirical_kernel) 
                                                  if frequency_filter(freq, freq_bound)])
                     scale_range = np.linspace(10**-4,freq_bound,grid_size)
-                    deviations = [deviation_function(normalize(values), smoothing_function(frequencies,l))
+                    deviations = [deviation_function(normalize(shift(values)), smoothing_function(frequencies,l))
                                   for l in scale_range]
                     optimal_scale = scale_range[np.argmin(deviations)]
                     return optimal_scale
