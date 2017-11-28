@@ -30,12 +30,12 @@ class gpcake(object):
         self.parallelthreads = 1
         self.structural_constraint = None
     #
-    def initialize_time_parameters(self, time_step, time_period):
+    def initialize_time_parameters(self, time_step, time_period, num_time_points):
         self.time_parameters = {"time_period": time_period,
-                                          "time_step": time_step}
+                                          "time_step": time_step, "num_time_points": num_time_points}
 
-        self.time_meshgrid = self.get_time_meshgrid(self.time_parameters["time_period"],
-                                                                        self.time_parameters["time_step"])
+        self.time_meshgrid = self.get_time_meshgrid(self.time_parameters["time_period"], self.time_parameters["time_step"],
+                                                                        self.time_parameters["num_time_points"])
 
         self.time_parameters["time_difference_matrix"] = self.time_meshgrid["time_difference_matrix"]
         self.__set_frequency_range()
@@ -104,7 +104,7 @@ class gpcake(object):
         ls_results = get_least_squares_results(feature_matrices_list, fourier_tensor)
         return ls_results
     #
-    def empirical_bayes_parameter_fit(self, time_domain_trials, learn_structural_constraint=True, show_diagnostics=False):
+    def empirical_bayes_parameter_fit(self, time_domain_trials, learn_structural_constraint=False, show_diagnostics=False, diagnostics_output_prefix='diagnostics_', freq_bound_fraction=1):
         ## private function ##
         def rearrange_results(least_squares_results, field):
             ##
@@ -140,19 +140,20 @@ class gpcake(object):
                          grid_size = 6000):
                 ## private lambdas ##
                 unzip              = lambda lst: zip(*lst)
-                deviation_function = lambda x,y: np.sum(np.abs(x - y))
+                deviation_function = lambda x, y: np.sum(np.abs(x - y))
                 shift              = lambda x: x - np.median(np.sort(x)[:5])
-                normalize          = lambda x: x/np.sum(x)
-                smoothing_function = lambda x,l: np.exp(-np.power(x,2)/(2*l**2))/(np.sqrt(np.pi*2*l**2))
+                normalize          = lambda x, dx: x/(np.sum(x) * dx)
+                smoothing_function = lambda x, l: np.exp(-np.power(x,2)/(2*l**2))/(np.sqrt(np.pi*2*l**2))
                 ## function body ##
+                df = np.median(np.diff(self.frequency_range))
                 if len(empirical_kernel) == 0:
                     return []
                 else:
                     frequencies, values = unzip([(freq, val) 
                                                  for (freq,val) in zip(self.frequency_range, empirical_kernel) 
                                                  if frequency_filter(freq, freq_bound)])
-                    scale_range = np.linspace(10**-4,freq_bound,grid_size)
-                    deviations = [deviation_function(normalize(shift(values)), smoothing_function(frequencies,l))
+                    scale_range = np.linspace(10**-4,2*freq_bound,grid_size)
+                    deviations = [deviation_function(normalize(shift(values), df), smoothing_function(frequencies,l))
                                   for l in scale_range]
                     optimal_scale = scale_range[np.argmin(deviations)]
                     return optimal_scale
@@ -186,7 +187,8 @@ class gpcake(object):
             np.fill_diagonal(scale_matrix, 0)     
             
             if show_diagnostics:
-                diagnostics.plot_scale_fit(result_matrices["ls_second_moment"], 
+                diagnostics.plot_scale_fit(diagnostics_output_prefix,
+                                           result_matrices["ls_second_moment"], 
                                            scale_matrix, 
                                            self.frequency_range, 
                                            freq_bound                                           
@@ -222,20 +224,26 @@ class gpcake(object):
                 standardized_array = np.zeros(data_array.shape)
                 attributes_std = np.array([np.std(row) for row in data_array]) 
                 for attribute_index, scale_factor in enumerate(attributes_std):
-                    standardized_array[attribute_index,:] = data_array[attribute_index,:] / scale_factor
+                    if scale_factor != 0:
+                      standardized_array[attribute_index,:] = data_array[attribute_index,:] / scale_factor
+                    else:
+                      standardized_array[attribute_index,:] = data_array[attribute_index,:]
                 return (standardized_array, attributes_std)
             #
             ## method body ##
             list_attribute_keys = dic_attribute_matrices.keys()
             list_attribute_matrices = dic_attribute_matrices.values()
             flat_matrices = map(flat_list, list_attribute_matrices)
+            print(list_attribute_keys[1])
+            print(np.array(flat_matrices))
             standardized_data, attributes_std = standardize(np.array(flat_matrices))
             standardized_centroids,_ = cluster.vq.kmeans(np.transpose(standardized_data), 2)
+            print(standardized_data)
             attribute_centroid_matrix = replace_with_centroid(standardized_centroids, 
                                                               attributes_std,
                                                               list_attribute_matrices)
             if show_diagnostics:
-                diagnostics.plot_distances(standardized_data, standardized_centroids)                
+                diagnostics.plot_distances(diagnostics_output_prefix, standardized_data, standardized_centroids)                
             return (attribute_centroid_matrix, list_attribute_keys)
         #
         def get_structural_connectivity_matrix(attribute_centroid_matrix, list_attribute_keys):
@@ -305,7 +313,7 @@ class gpcake(object):
         ## function body ##
         print 'Training GP CaKe parameters with empirical Bayes.' 
         number_sources, number_frequencies = time_domain_trials[0].shape 
-        freq_bound = np.max(np.abs(self.frequency_range)) / 5.
+        freq_bound = np.max(np.abs(self.frequency_range)) / float(freq_bound_fraction)
         ##
         ls_results = self.empirical_least_squares_analysis(time_domain_trials)
         fields_list = ["ls_second_moment", "log_likelihood_ratio", "corrected_residual_variance", "ls_estimate"]
@@ -349,6 +357,13 @@ class gpcake(object):
     ###
     ### End of empirical Bayes parameter fitting
     ###
+
+    def set_covariance_parameters(self, number_sources, time_scale, time_shift, spectral_smoothing, noise_level):
+        self.number_sources = number_sources
+        parameter_matrices = [[(time_scale, time_shift, spectral_smoothing) for _ in range(number_sources)] for _ in range(number_sources)]
+        self.parameter_matrices = utility.fill_diagonal(parameter_matrices, 0)
+        self.noise_vector = number_sources*[noise_level]
+		
     
     def __get_observation_models(self, fourier_time_series, moving_average_kernels):
         observation_models = []
@@ -459,7 +474,7 @@ class gpcake(object):
     def __set_frequency_range(self):
         max_frequency = (2*np.pi)/(2*self.time_parameters["time_step"])
         frequency_step = (2*np.pi)/(self.time_parameters["time_period"])
-        self.frequency_range = np.arange(-max_frequency, max_frequency, frequency_step)
+        self.frequency_range = np.linspace(-max_frequency, max_frequency, self.time_parameters["num_time_points"])
     #
     def __get_frequency_range(self):
         if len(self.frequency_range)==0:
@@ -488,8 +503,9 @@ class gpcake(object):
         dynamic_covariance_matrix = (amplitude**2)*np.exp(-relaxation*np.abs(time_difference_matrix))
         return dynamic_covariance_matrix
     #
-    def get_time_meshgrid(self, time_period, time_step):
-        time_range = np.arange(-time_period/2., time_period/2., time_step)
+    def get_time_meshgrid(self, time_period, time_step, num_time_points):
+        time_range = np.linspace(-time_period/2., time_period/2., num_time_points)
+        #time_range = np.arange(-time_period/2., time_period/2., time_step)
         time_mesh_x, time_mesh_y = np.meshgrid(time_range, time_range)
         time_difference_matrix = (time_mesh_y - time_mesh_x)
         causal_matrix = 0.5*(np.sign(time_difference_matrix) + 1)
