@@ -31,11 +31,11 @@ class gpcake(object):
         self.structural_constraint = None
     #
     def initialize_time_parameters(self, time_step, time_period, num_time_points):
-        self.time_parameters = {"time_period": time_period,
-                                          "time_step": time_step, "num_time_points": num_time_points}
+        self.time_parameters = {"time_period": time_period, "time_step": time_step, "num_time_points": num_time_points}
 
-        self.time_meshgrid = self.get_time_meshgrid(self.time_parameters["time_period"], self.time_parameters["time_step"],
-                                                                        self.time_parameters["num_time_points"])
+        self.time_meshgrid = self.get_time_meshgrid(self.time_parameters["time_period"], 
+                                                    self.time_parameters["time_step"],
+                                                    self.time_parameters["num_time_points"])
 
         self.time_parameters["time_difference_matrix"] = self.time_meshgrid["time_difference_matrix"]
         self.__set_frequency_range()
@@ -104,7 +104,7 @@ class gpcake(object):
         ls_results = get_least_squares_results(feature_matrices_list, fourier_tensor)
         return ls_results
     #
-    def empirical_bayes_parameter_fit(self, time_domain_trials, learn_structural_constraint=False, show_diagnostics=False, diagnostics_output_prefix='diagnostics_', freq_bound_fraction=1):
+    def empirical_bayes_parameter_fit(self, time_domain_trials, learn_structural_constraint=False, show_diagnostics=False, diagnostics_output_prefix='diagnostics_', freq_bound_fraction=5):
         ## private function ##
         def rearrange_results(least_squares_results, field):
             ##
@@ -187,8 +187,7 @@ class gpcake(object):
             np.fill_diagonal(scale_matrix, 0)     
             
             if show_diagnostics:
-                diagnostics.plot_scale_fit(diagnostics_output_prefix,
-                                           result_matrices["ls_second_moment"], 
+                diagnostics.plot_scale_fit(result_matrices["ls_second_moment"], 
                                            scale_matrix, 
                                            self.frequency_range, 
                                            freq_bound                                           
@@ -234,16 +233,13 @@ class gpcake(object):
             list_attribute_keys = dic_attribute_matrices.keys()
             list_attribute_matrices = dic_attribute_matrices.values()
             flat_matrices = map(flat_list, list_attribute_matrices)
-            print(list_attribute_keys[1])
-            print(np.array(flat_matrices))
             standardized_data, attributes_std = standardize(np.array(flat_matrices))
             standardized_centroids,_ = cluster.vq.kmeans(np.transpose(standardized_data), 2)
-            print(standardized_data)
             attribute_centroid_matrix = replace_with_centroid(standardized_centroids, 
                                                               attributes_std,
                                                               list_attribute_matrices)
             if show_diagnostics:
-                diagnostics.plot_distances(diagnostics_output_prefix, standardized_data, standardized_centroids)                
+                diagnostics.plot_distances(standardized_data, standardized_centroids)                
             return (attribute_centroid_matrix, list_attribute_keys)
         #
         def get_structural_connectivity_matrix(attribute_centroid_matrix, list_attribute_keys):
