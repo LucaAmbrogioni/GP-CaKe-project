@@ -1,6 +1,6 @@
 import numpy as np
 import scipy as sp
-from gp_cake.utility import matrix_division
+from utility import matrix_division
 
 class integroDifferential_simulator(object):
     #
@@ -88,7 +88,77 @@ class integroDifferential_simulator(object):
             self.samples += [self.__get_sample(block_matrices,
                                                self.dynamic_parameters["number_sources"],
                                                self.time_meshgrid["number_time_points"])]
+    
+    def run_spiking_network_sampler(self, number_samples):
+        self.time_meshgrid = self.get_time_meshgrid(self.time_parameters["time_period"],
+                                                    self.time_parameters["time_step"])
 
+        self.action_potentials    = []
+        self.membrane_potentials  = []
+        self.firing_probabilities = []
+        
+        for sample_index in range(0, number_samples):
+            x,m,p = self.__get_spiking_network_sample(self.dynamic_parameters["number_sources"],
+                                                      self.time_meshgrid["number_time_points"])
+            self.action_potentials    += [x]
+            self.membrane_potentials  += [m]
+            self.firing_probabilities += [p]
+        
+    def __get_spiking_network_sample(self, number_sources, number_time_points):
+        
+        epsp    = self.neuron_functions["epsp"]
+        sigma   = self.neuron_functions["sigma"]
+        weights = self.dynamic_parameters["connectivity_weights"]
+        padding = self.neuron_functions["padding"]
+        
+        # set initial membrane potentials
+        m = np.zeros((self.dynamic_parameters["number_sources"], number_time_points))
+        
+        # set initial firing probabilities
+        p = np.zeros((self.dynamic_parameters["number_sources"], number_time_points))
+
+        # set initial activities
+        x = np.zeros((self.dynamic_parameters["number_sources"], number_time_points))
+
+        # simulate neuronal dynamics at t=1,...,T 
+        for tdx in range(1, number_time_points): 
+            
+            for ndx in range(0, number_sources):
+            
+                # calculate incoming currents
+                preAP = np.dot(weights[:,ndx], x[:,0:tdx])
+                postC = np.convolve(preAP, epsp, 'same')[tdx-1]
+                
+                # update membrane potentials
+                m[ndx,tdx] = self.__simulate_SDE(m[ndx,tdx-1], postC)
+                
+                # update spiking probability
+                p[ndx,tdx] = sigma(m[ndx,tdx])
+            
+            for ndx in range(0, number_sources):
+                
+                # update spike train
+                zeroPadd   = (tdx < padding) or (tdx > (number_time_points-padding))
+                spikeProb  = np.random.binomial(1, p[ndx,tdx])
+                x[ndx,tdx] = (1-np.int(zeroPadd)) * spikeProb
+            
+        return x, m, p
+    
+    def __simulate_SDE(self, m_, inDrive):
+        
+        # numerically solve stochastic differential equation via Euler-Maruyama
+        
+        tau  = 350.0                        # membrane time constant,
+        beta = 100.0                        # (input) current-to-voltage conversion,
+        SNR  = 0.7			    # signal-to-noise relationship
+
+        dt   = self.time_parameters["time_step"]
+        
+        dW = np.random.normal(loc = 0.0, scale = np.sqrt(dt))
+        m  = m_ + tau * ((-m_ + beta*SNR*inDrive)*dt + (1-SNR)*dW)
+        
+        return m
+    
     def ground_truth_conn(self,t,s):
         return 0.5*(np.sign(t) + 1)*t*np.exp(-t*s)
 
@@ -133,3 +203,74 @@ class integroDifferential_simulator(object):
                     ground_truth[:,i,j] = self.conn_function(t, connectivity_relaxation_mat, adj_mat, i,j)
         
         return (trials_train, trials_test, ground_truth)
+
+    def simulate_spiking_network_dynamics(self, 
+                                          ntrials_train, 
+                                          ntrials_test, 
+                                          params):
+        
+        adj_mat                     = params['network']
+        time_step                   = params['time_step']
+        time_period                 = params['time_period']
+        padding_window              = params['padding']
+        
+        self.time_parameters        = {"time_period": time_period,
+                                       "time_step"  : time_step}
+        
+        connectivity_strength       = params['connection_strength']
+        p                           = adj_mat.shape[0]
+        adj_mat                    *= connectivity_strength
+        
+        self.dynamic_parameters     = {"number_sources"       : p,
+                                       "connectivity_weights" : adj_mat}
+        
+        # get the excitatory post-synaptic potential shape
+        epsp                            = self.get_epsp_kernel(time_step)
+                        
+        # get sigmoidal activation function                    
+        sigma                           = self.get_activation_function(time_step)
+        
+        self.neuron_functions           = {"epsp"   : epsp,
+                                           "sigma"  : sigma,
+                                           "padding": padding_window}
+        
+        self.run_spiking_network_sampler(number_samples = ntrials_train+ntrials_test)
+        
+        trials_train = {"action_potentials"     : self.action_potentials[0:ntrials_train],
+                        "membrane_potentials"   : self.membrane_potentials[0:ntrials_train],
+                        "firing_probabilities"  : self.firing_probabilities[0:ntrials_train]}
+        trials_test  = {"action_potentials"     : self.action_potentials[ntrials_train:],
+                        "membrane_potentials"   : self.membrane_potentials[ntrials_train:],
+                        "firing_probabilities"  : self.firing_probabilities[ntrials_train:]}
+        
+        return (trials_train, trials_test)
+    
+    def get_epsp_kernel(self,dt): 
+        
+        # define EPSP kernel, see e.g. Koch (1999)
+        
+        tau   = 0.6                                 # time constant for excitatory units
+        delay = 5                                   # onset shift of the kernel
+        step  = lambda arg: 1.0 * (arg > 0)         # heaviside step function
+
+        epsp  = lambda arg: (arg**5/tau**6) * np.exp(-arg/tau)*step(arg)
+        lag   = lambda arg: arg-delay
+    
+        length= 20                                  # EPSP duration is about 15-20 ms
+        res   = dt*1000                             # temporal resolution of EPSP curve
+        kernel= epsp(lag(np.arange(0,length,1.0*res)))  
+        kernel= np.append(np.zeros(len(kernel)),kernel)
+        kernel= 1/np.max(kernel) * kernel           # normalize kernel amplitude
+        
+        return kernel
+    
+    def get_activation_function(self,dt):
+        
+        fMax      = 0.2/dt                          # maximum firing rate
+        gain      = 0.115                           # steepness of activation function
+        thresh    = -25.0                           # constant membrane-potential shift
+                        
+        # declare sigmoidal activation function                    
+        sigma  = lambda m: fMax * 1/(1+ np.exp(-gain*(m + thresh)))*dt
+        
+        return sigma
