@@ -486,7 +486,7 @@ class gpcake(object):
         for sample in data:            
             time_series = sample[time_series_index,:].T
             whitened_time_series = matrix_division(divider = cholesky_factor,
-                                                   divided = time_series,
+                                                   divided = np.reshape(time_series, (len(time_series),1)),
                                                    side = "left",
                                                    cholesky = "no")
             data_factor = whitened_time_series.T*whitened_time_series
@@ -588,12 +588,41 @@ class gpcake(object):
         complex_covariance = sig_tools.hilbert(covariance)
         return complex_covariance
     #
+    def run_spike_membrane_analysis(self, spike_data, membrane_data):    
+            ##
+            def run_spike_membrane_analysis_body(spike, membrane):
+                sample_connectivity = np.zeros((nsources, nsources, nfrequencies))
+                x_membrane  = self.__get_fourier_time_series(membrane)
+                x_spike     = self.__get_fourier_time_series(spike)
+                Px          = self.__get_modified_processes(x_membrane, dynamic_polynomials)
+                observation_models = self.__get_observation_models(x_spike, moving_average_kernels)
+                for j in range(0, nsources): # target
+                    total_covariance_matrix = self.__get_total_covariance_matrix(covariance_matrices, 
+                                                                                 observation_models, 
+                                                                                 j) 
+                    for i in range(0, nsources): # source
+                        connectivity_kernel = self.__posterior_kernel_cij_temporal(observation_models[i], 
+                                                                                   covariance_matrices[i][j], 
+                                                                                   total_covariance_matrix, 
+                                                                                   Px[j])
+
+                        sample_connectivity[i, j, :] = connectivity_kernel
+                return sample_connectivity
+            ##
+            nsamples = len(spike_data)
+            nsources, nfrequencies = spike_data[0].shape
+            dynamic_polynomials = self.__get_dynamic_polynomials()
+            moving_average_kernels = self.__get_moving_average_kernels()
+            covariance_matrices = self.__get_covariance_matrices()
+            connectivity = np.zeros((nsamples, nsources, nsources, nfrequencies))
+            for s_ix, samples in enumerate(zip(spike_data, membrane_data)):  
+                connectivity[s_ix, :, :, :] = run_spike_membrane_analysis_body(samples[0], samples[1])
+            return connectivity
+    #
     def run_analysis(self, data, onlyTrials=False, show_diagnostics=False):
         ## private functions
-        def run_analysis_body(sample):        
-            #(nsources, nfrequencies) = np.shape(sample)        
+        def run_analysis_body(sample):             
             sample_connectivity = np.zeros((nsources, nsources, nfrequencies))
-
             x = self.__get_fourier_time_series(sample)
             Px = self.__get_modified_processes(x, dynamic_polynomials)
             observation_models = self.__get_observation_models(x, moving_average_kernels)

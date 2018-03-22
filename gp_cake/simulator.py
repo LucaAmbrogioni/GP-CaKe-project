@@ -148,14 +148,14 @@ class integroDifferential_simulator(object):
         
         # numerically solve stochastic differential equation via Euler-Maruyama
         
-        tau  = 350.0                        # membrane time constant,
-        beta = 100.0                        # (input) current-to-voltage conversion,
-        SNR  = 0.7			    # signal-to-noise relationship
+        tau  = 0.015                       # membrane time constant,
+        beta = 100.0*3.5                        # (input) current-to-voltage conversion,
+        driving_noise  = 1.5			    # signal-to-noise relationship
 
         dt   = self.time_parameters["time_step"]
         
         dW = np.random.normal(loc = 0.0, scale = np.sqrt(dt))
-        m  = m_ + tau * ((-m_ + beta*SNR*inDrive)*dt + (1-SNR)*dW)
+        m  = m_ + (1/tau) * ((-m_ + beta*inDrive)*dt + driving_noise*dW)
         
         return m
     
@@ -266,11 +266,10 @@ class integroDifferential_simulator(object):
     
     def get_activation_function(self,dt):
         
-        fMax      = 0.2/dt                          # maximum firing rate
-        gain      = 0.115                           # steepness of activation function
-        thresh    = -25.0                           # constant membrane-potential shift
+        fMax      = 200                          # Hz maximum firing rate
+        gain      = 0.5                           # (mV)^-1 steepness of activation function
+        thresh    = 7.0                         # mV constant membrane-potential shift
                         
         # declare sigmoidal activation function                    
-        sigma  = lambda m: fMax * 1/(1+ np.exp(-gain*(m + thresh)))*dt
-        
+        sigma  = lambda m: fMax * 1/(1 + np.exp(-gain*(m - thresh)))*dt
         return sigma
