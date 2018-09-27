@@ -31,7 +31,7 @@ from gp_cake import gpcake
 
 
 #importlib.reload(gpcake)
-
+ 
 
 """
 Simulation parameters. Here, we construct a 2-node graph with one connection (with max. strength <connection_strength>).
