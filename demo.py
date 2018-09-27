@@ -3,8 +3,9 @@ A simple 2-node simulation demonstration the application of GP-CaKe. Of particul
 that define the constraints on the posterior shape of the causal kernels.
 
 References:
-    Ambrogioni, L., Hinne, M., van Gerven, M., & Maris, E. (2017). GP CaKe: Effective brain connectivity with causal kernels,
-    pp. 1–10. Retrieved from http://arxiv.org/abs/1705.05603
+    Ambrogioni, L., Hinne, M., Van Gerven, M. A. J., & Maris, E. (2017). 
+    GP CaKe: Effective brain connectivity with causal kernels. In Advances in 
+    Neural Information Processing Systems (Vol. 30, pp. 950–959).
 
 Last updated on July 6th, 2017.
 """
@@ -55,8 +56,8 @@ Simulation settings. We generate <ntrials_train> trials to train the dynamic par
 and <ntrials_test> to learn the GP posterior.
 """
 
-ntrials_train                                       = 100
-ntrials_test                                        = 100
+ntrials_train                                       = 5
+ntrials_test                                        = 5
 simulation                                          = sim.integroDifferential_simulator()
 print( 'Generating {:d} simulation samples'.format(ntrials_train + ntrials_test) )
 utility.tic()
@@ -101,17 +102,29 @@ dynamic_parameters_range["amplitude"]["max"] = 0.015
 print('Learning dynamic parameters')
 utility.tic()
 cake.learn_dynamic_parameters(training_samples, dynamic_parameters_range)
+cake.print_dynamic_parameters()
 utility.toc()
 
 
 """
 Set the parameters of the causal response functions.
 """
-cake.set_covariance_parameters(number_sources       = p, 
-                               time_scale           = 0.15, 
-                               time_shift           = 0.05, 
-                               spectral_smoothing   = np.pi, 
-                               noise_level          = 0.05)
+if False:
+    cake.set_covariance_parameters(number_sources       = p, 
+                                   time_scale           = 0.15, 
+                                   time_shift           = 0.05, 
+                                   spectral_smoothing   = np.pi, 
+                                   noise_level          = 0.05)
+
+
+"""
+Alternatively, the kernel parameters may be learned using the model evidence.
+"""
+
+if True:
+    cake.learn_covariance_parameters(training_samples)
+    
+
 
 
 """

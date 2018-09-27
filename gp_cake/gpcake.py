@@ -359,8 +359,30 @@ class gpcake(object):
         parameter_matrices = [[(time_scale, time_shift, spectral_smoothing) for _ in range(number_sources)] for _ in range(number_sources)]
         self.parameter_matrices = utility.fill_diagonal(parameter_matrices, 0)
         self.noise_vector = number_sources*[noise_level]
-		
-    
+	#
+    def learn_covariance_parameters(self, training_samples):
+        nsources = training_samples[0].shape[0]
+        
+        # simulation defaults - these are fit to the simulation settings and should not be used blindly!
+        time_scale = 0.15
+        time_shift = 0.05
+        spectral_smoothing = np.pi
+        noise_level = 0.05
+        
+        # do loopage
+        
+        for target_node in range(nsources):
+            for source_node in range(nsources):
+                if source_node != target_node:
+                    # do something
+                    print('hoi')
+        
+        self.set_covariance_parameters(number_sources = nsources,
+                                       time_scale = time_scale,
+                                       time_shift = time_shift,
+                                       spectral_smoothing = spectral_smoothing,
+                                       noise_level = noise_level)
+    #    
     def __get_observation_models(self, fourier_time_series, moving_average_kernels):
         observation_models = []
         index = 0
@@ -543,7 +565,20 @@ class gpcake(object):
         else:
             print("The method for learning the dynamic parameters is currently only implemented for relaxation dynamics")
             raise
+    #
+    def print_dynamic_parameters(self):
+        if self.dynamic_type is "Relaxation":
+            alpha = self.dynamic_parameters["relaxation_constants"]
+            amplitude = self.dynamic_parameters["amplitude"]
             
+            nsources = len(alpha)
+            print("Parameters of internal dynamics:")
+            print("{:>10s}\t{:>10s}\t{:>10s}".format("Node", "Alpha", "Amplitude"))
+            for i in range(nsources):
+                print("{:10d}\t{:10f}\t{:10f}".format(i+1, float(alpha[i]), float(amplitude[i])))
+        else:
+            print("The method for learning the dynamic parameters is currently only implemented for relaxation dynamics")
+            raise
     #
     def learn_dynamic_parameters(self, data, dynamic_parameters_range):
         jitter = 10 ** -15 # numerical stability
