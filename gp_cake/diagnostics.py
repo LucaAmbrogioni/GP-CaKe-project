@@ -1,6 +1,6 @@
 import numpy as np
-import matplotlib
-matplotlib.use('Agg')
+#import matplotlib
+#matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import scipy as sp
 
@@ -74,7 +74,7 @@ def plot_samples(samples):
     plt.draw()
 #
 def plot_connectivity(ground_truth, connectivity, time_range, t0):
-    ylim_max = 1.2 * np.max(ground_truth)
+    ylim_max = 1.5 * np.max(ground_truth)
     ylim_min = -1.0 * np.max(ground_truth)
     x0 = np.where(time_range < t0)[0][-1]
     n = ground_truth.shape[0]
@@ -86,7 +86,7 @@ def plot_connectivity(ground_truth, connectivity, time_range, t0):
         for j in range(0, p):
             if i != j:
                 plt.subplot(p, p, i * p + j + 1)
-                #plt.plot(time_range[plotrange], ground_truth[plotrange, i, j], label='Ground truth', color='r')
+                plt.plot(time_range[plotrange], ground_truth[plotrange, i, j], label='Ground truth', color='r')
                 ax = plt.gca()
                 mean = np.mean(connectivity[:, i, j, plotrange], axis=0)
                 std = np.std(connectivity[:, i, j, plotrange], axis=0)
@@ -96,7 +96,7 @@ def plot_connectivity(ground_truth, connectivity, time_range, t0):
                 ax.axis('tight')
                 ax.axvline(x=0.0, linestyle='--', color='black', label='Zero lag')
                 ax.set_xlim([t0, 2.0])
-                #ax.set_ylim([ylim_min, ylim_max])
+                ax.set_ylim([ylim_min, ylim_max])
                 ax.set_xlabel('Time lag')
                 ax.set_ylabel('Connectivity amplitude')
     plt.legend(bbox_to_anchor=(1.05, 0), loc='upper center', borderaxespad=0.)

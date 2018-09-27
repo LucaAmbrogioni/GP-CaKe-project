@@ -16,28 +16,20 @@ import numpy as np
 Simulation and GP-CaKe packages.
 """
 
-import simulator as sim
-import gpcake
-import utility
+#import simulator as sim
+#import simulator from gp_cake
+#import utility
 
-from time import time
+import sys
+sys.path.append('gp_cake')
 
-tics = []
+from gp_cake import simulator as sim
+from gp_cake import utility
+from gp_cake import diagnostics
+from gp_cake import gpcake
 
-def tic():
-    tics.append(time())
-
-def toc():
-    if len(tics)==0:
-        return None
-    else:
-        return time() - tics.pop()
 
 #importlib.reload(gpcake)
-
-import argparse
-
-
 
 
 """
@@ -63,24 +55,26 @@ Simulation settings. We generate <ntrials_train> trials to train the dynamic par
 and <ntrials_test> to learn the GP posterior.
 """
 
-ntrials_train                                       = 30
-ntrials_test                                        = 30
+ntrials_train                                       = 100
+ntrials_test                                        = 100
 simulation                                          = sim.integroDifferential_simulator()
-print('Generating simulation samples')
+print( 'Generating {:d} simulation samples'.format(ntrials_train + ntrials_test) )
+utility.tic()
 (training_samples, testing_samples, ground_truth)   = simulation.simulate_network_dynamics(ntrials_train, ntrials_test, simulation_params)
+utility.toc()
 
 """
 Plot a few samples to see the generated time series.
 """
 
-utility.plot_samples(training_samples[0:3])
+diagnostics.plot_samples(training_samples[0:3])
 
 """
 Simulation is done. Time to bake some cake!
 """
 
 cake = gpcake.gpcake()
-cake.initialize_time_parameters(time_step, time_period)
+cake.initialize_time_parameters(time_step, time_period, n)
 cake.dynamic_parameters["number_sources"] = p
 
 """
@@ -105,27 +99,32 @@ dynamic_parameters_range["amplitude"]["min"] = 0.005
 dynamic_parameters_range["amplitude"]["max"] = 0.015
 
 print('Learning dynamic parameters')
+utility.tic()
 cake.learn_dynamic_parameters(training_samples, dynamic_parameters_range)
+utility.toc()
+
 
 """
-Set the parameters of the causal kernel.
+Set the parameters of the causal response functions.
 """
+cake.set_covariance_parameters(number_sources       = p, 
+                               time_scale           = 0.15, 
+                               time_shift           = 0.05, 
+                               spectral_smoothing   = np.pi, 
+                               noise_level          = 0.05)
 
-cake.covariance_parameters = {  "time_scale"        : 0.15,     # Temporal smoothing
-                                "time_shift"        : 0.05,     # Temporal offset
-                                "causal"            : "yes",    # Hilbert transform
-                                "spectral_smoothing": np.pi }   # Temporal localization
-cake.noise_level = 0.05
 
 """
 Compute the posteriors for each of the p*(p-1) connections.
 """
 
-print('Computing posterior kernels')
+print('Computing posterior causal response functions for {:d} connections'.format( int(p*(p-1))) )
+utility.tic()
 connectivity = cake.run_analysis(testing_samples)
+utility.toc()
 
 
 """
-Visualize the posterior kernels
+Visualize the posterior causal response functions
 """
-utility.plot_connectivity(ground_truth, connectivity, time_range, t0=-0.5)
+diagnostics.plot_connectivity(ground_truth, connectivity, time_range, t0=-0.5)

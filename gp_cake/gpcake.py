@@ -1,7 +1,6 @@
 import numpy as np
 import scipy.signal as sig_tools
 import scipy.cluster as cluster
-import scipy.spatial as spatial
 import warnings
 import sys
 sys.setrecursionlimit(20000)
@@ -29,6 +28,7 @@ class gpcake(object):
         self.causal_obs_model = None
         self.parallelthreads = 1
         self.structural_constraint = None
+        self.parameter_matrices = None
     #
     def initialize_time_parameters(self, time_step, time_period, num_time_points):
         self.time_parameters = {"time_period": time_period, "time_step": time_step, "num_time_points": num_time_points}
@@ -307,7 +307,7 @@ class gpcake(object):
         #            
         frequency_filter = lambda freq, freq_bound: ((freq > -freq_bound) & (freq < freq_bound))
         ## function body ##
-        print 'Training GP CaKe parameters with empirical Bayes.' 
+        print('Training GP CaKe parameters with empirical Bayes.')
         number_sources, number_frequencies = time_domain_trials[0].shape 
         freq_bound = np.max(np.abs(self.frequency_range)) / float(freq_bound_fraction)
         ##
@@ -343,12 +343,12 @@ class gpcake(object):
         if learn_structural_constraint:
             structural_connectivity_matrix = get_structural_connectivity_matrix(attribute_centroid_matrix, list_attribute_keys)   
             self.structural_constraint = np.array(structural_connectivity_matrix)
-            print 'Connectivity constraint: enabled.'
+            print('Connectivity constraint: enabled.')
         else:
-            print 'Connectivity constraint: disabled.'
+            print('Connectivity constraint: disabled.')
                 
         
-        print 'Empirical Bayes procedure complete.'
+        print('Empirical Bayes procedure complete.')
 
     ###
     ### End of empirical Bayes parameter fitting
@@ -740,27 +740,32 @@ class gpcake(object):
             return connectivity
         ## function body of run_analysis()
         
+        assert self.parameter_matrices != None, "Please specify the parameters of the causal response function first."
+        
         dynamic_polynomials = self.__get_dynamic_polynomials()
         moving_average_kernels = self.__get_moving_average_kernels()
         covariance_matrices = self.__get_covariance_matrices()
         (nsamples, nsources, nfrequencies) = np.shape(np.asarray(data))
         self.__get_frequency_range()
         
+
+            
+        
         if self.structural_constraint is None:
             self.structural_constraint = np.ones(shape=(nsources, nsources)) - np.eye(nsources)   
             
         if show_diagnostics:  
-            print 'GP CaKe parameters:'
-            print '\nTime scales (nu_ij):'
-            print np.array(utility.fill_diagonal(utility.nested_map(lambda x: x[0], self.parameter_matrices), 0))
-            print '\nTime shifts (t_ij):'
-            print np.array(utility.fill_diagonal(utility.nested_map(lambda x: x[1], self.parameter_matrices), 0))
-            print '\nSpectral smoothing: (theta_ij)' 
-            print np.array(utility.fill_diagonal(utility.nested_map(lambda x: x[2], self.parameter_matrices), 0))
-            print '\nNoise levels (sigma_i):'
-            print np.array(self.noise_vector)
-            print '\nConnectivity constraint (G_ij):'
-            print self.structural_constraint
+            print('GP CaKe parameters:')
+            print('\nTime scales (nu_ij):')
+            print(np.array(utility.fill_diagonal(utility.nested_map(lambda x: x[0], self.parameter_matrices), 0)))
+            print('\nTime shifts (t_ij):')
+            print(np.array(utility.fill_diagonal(utility.nested_map(lambda x: x[1], self.parameter_matrices), 0)))
+            print('\nSpectral smoothing: (theta_ij)')
+            print(np.array(utility.fill_diagonal(utility.nested_map(lambda x: x[2], self.parameter_matrices), 0)))
+            print('\nNoise levels (sigma_i):')
+            print(np.array(self.noise_vector))
+            print('\nConnectivity constraint (G_ij):')
+            print(self.structural_constraint)
             
             utility.tic()
         
