@@ -8,6 +8,8 @@ sys.setrecursionlimit(20000)
 from gp_cake.utility import matrix_division
 from gp_cake import utility
 from gp_cake import diagnostics 
+from itertools import product
+import matplotlib.pyplot as plt
 
 class gpcake(object):
     #
@@ -29,6 +31,8 @@ class gpcake(object):
         self.parallelthreads = 1
         self.structural_constraint = None
         self.parameter_matrices = None
+        self.structural_posteriors = None
+        self.connectivity = None
     #
     def initialize_time_parameters(self, time_step, time_period, num_time_points):
         self.time_parameters = {"time_period": time_period, "time_step": time_step, "num_time_points": num_time_points}
@@ -354,11 +358,10 @@ class gpcake(object):
     ### End of empirical Bayes parameter fitting
     ###
 
-    def set_covariance_parameters(self, number_sources, time_scale, time_shift, spectral_smoothing, noise_level):
-        self.number_sources = number_sources
-        parameter_matrices = [[(time_scale, time_shift, spectral_smoothing) for _ in range(number_sources)] for _ in range(number_sources)]
+    def set_covariance_parameters(self, time_scale, time_shift, spectral_smoothing, noise_level):        
+        parameter_matrices = [[(time_scale, time_shift, spectral_smoothing) for _ in range(self.number_sources)] for _ in range(self.number_sources)]
         self.parameter_matrices = utility.fill_diagonal(parameter_matrices, 0)
-        self.noise_vector = number_sources*[noise_level]
+        self.noise_vector = self.number_sources*[noise_level]
 	#
     def learn_covariance_parameters(self, training_samples):
         nsources = training_samples[0].shape[0]
@@ -499,7 +502,69 @@ class gpcake(object):
             self.__set_frequency_range()        
         return self.frequency_range
     #
+    
+#    def __get_model_structure(self, covariance_matirx, data):
+#        p = self.number_sources
+#        if not 'graph' in kwarg:
+#            graph = np.ones((p, p))  
+#            
+#        for source in range(p):
+#            for target in range(p):
+#                if graph[source, target]:
+#                    self.__get_edge_conditional_like
+#    
+    
+    def __get_log_conditional_marginal_likelihood(self, input_edge_structure):
+        #todo
+        for input_edge, edge_value in enumerate(input_edge_structure):
+            if edge_value:
+                print('yay')
+        
+        return 0
+    
+    def __get_log_conditional_prior(self, input_edge_structure):
+        
+        #todo
+        return 0
+    #   
+    
+    def __get_structural_posterior_from_input(self, method):
+        if method == 'enumeration':
+            p = self.number_sources
+            conditional_marginal_likelihoods = {}
+            for input_edge_structure in product([0, 1], repeat= (p - 1)):
+                                
+                log_cond_marg_lik = self.__get_log_conditional_marginal_likelihood(input_edge_structure)
+                log_prior = self.__get_log_conditional_prior(input_edge_structure)
+                
+                log_cond_posterior = log_cond_marg_lik + log_prior
+                
+                # renormalize and take exponent                
+                conditional_marginal_likelihoods[input_edge_structure] = utility.safe_exp_norm(log_cond_posterior)
+                
+            return conditional_marginal_likelihoods
+        else:
+            print('This is not yet implemented')
+            return 0
+    #
+    def __get_graph_posterior(self):
+        # todo: only (construct) get if not yet set
+        p = self.number_sources
+        dynamic_polynomials = self.__get_dynamic_polynomials()
+        moving_average_kernels = self.__get_moving_average_kernels()
+        covariance_matrices = self.__get_covariance_matrices()
+        (nsamples, nsources, nfrequencies) = np.shape(np.asarray(data))
+        
+        self.structural_posteriors = []        
+        
+        for target in range(p):
+            structural_posterior_input = self.__get_structural_posterior_from_input(method = 'enumeration')            
+            self.structural_posteriors.append(structural_posterior_input)
+        
+        
+    # 
     def __get_log_marginal_likelihood(self, covariance_matrix, data, time_series_index, jitter):
+            
         log_marginal_likelihood = 0
         number_points = len(data[0][time_series_index,:])
         jittered_covariance_matrix = covariance_matrix + jitter*np.identity(number_points)
@@ -515,6 +580,7 @@ class gpcake(object):
             sample_log_marginal_likelihood = - 0.5*number_points*np.log(np.pi) - 0.5*log_determinant - 0.5*data_factor
             log_marginal_likelihood += sample_log_marginal_likelihood
         return log_marginal_likelihood
+    
 
     def __get_AR1_dynamic_covariance_matrix(self, relaxation, amplitude):
         time_difference_matrix = self.time_parameters["time_difference_matrix"]
@@ -580,24 +646,33 @@ class gpcake(object):
             print("The method for learning the dynamic parameters is currently only implemented for relaxation dynamics")
             raise
     #
-    def learn_dynamic_parameters(self, data, dynamic_parameters_range):
+    def learn_dynamic_parameters(self, data, dynamic_parameters_range, verbose=True):
         jitter = 10 ** -15 # numerical stability
         if self.dynamic_type is "Relaxation":
-            number_sources = self.dynamic_parameters["number_sources"]
+            if verbose:
+                print('Learning parameters of Wiener process...', end='', flush=True)
+                utility.tic()
+            p = data[0].shape[0]
+            self.dynamic_parameters["number_sources"] = p
+            self.number_sources = p
+                        
             self.dynamic_parameters = {}
-            self.dynamic_parameters["relaxation_constants"] = np.zeros(shape = (number_sources,1))
-            self.dynamic_parameters["amplitude"] = np.zeros(shape = (number_sources,1))
-            for time_series_index in range(0,number_sources):
+            self.dynamic_parameters["relaxation_constants"] = np.zeros(shape = (p,1))
+            self.dynamic_parameters["amplitude"] = np.zeros(shape = (p,1))
+            for time_series_index in range(0,p):
                 self.__get_dynamic_parameters(dynamic_parameters_range,
                                               data,
                                               time_series_index,
                                               jitter)
-            self.dynamic_parameters["moving_average_time_constants"] = 1e15 * np.ones(shape = (number_sources,1))
-            self.dynamic_parameters["number_sources"] = number_sources
+            self.dynamic_parameters["moving_average_time_constants"] = 1e15 * np.ones(shape = (p,1))
+            if verbose:
+                print('done ({:0.2f} seconds).'.format(utility.toc()))
             return
         else:
             print("The method for learning the dynamic parameters is currently only implemented for relaxation dynamics")
             raise
+        if verbose:            
+            self.print_dynamic_parameters()
     #
     def __posterior_kernel_cij(self, obs_model, cov_matrix, total_cov_matrix, dynamic_modified_fourier_series):
         """
@@ -654,7 +729,7 @@ class gpcake(object):
                 connectivity[s_ix, :, :, :] = run_spike_membrane_analysis_body(samples[0], samples[1])
             return connectivity
     #
-    def run_analysis(self, data, onlyTrials=False, show_diagnostics=False):
+    def run_analysis(self, data, onlyTrials=False, show_diagnostics=False, verbose=True):
         ## private functions
         def run_analysis_body(sample):             
             sample_connectivity = np.zeros((nsources, nsources, nfrequencies))
@@ -802,24 +877,74 @@ class gpcake(object):
             print('\nConnectivity constraint (G_ij):')
             print(self.structural_constraint)
             
-            utility.tic()
         
-        connectivity = None
+        #connectivity = None
         if self.parallelthreads > 1 and not onlyTrials:
-            print('Parallel implementation (p = {:d}).'.format(self.parallelthreads))            
-            connectivity = run_analysis_parallel_flatloop(data)
+            if verbose:
+                print('Parallel implementation (p = {:d}).'.format(self.parallelthreads))            
+                print('Computing posterior response functions...', end='', flush=True)
+            self.connectivity = run_analysis_parallel_flatloop(data)
         elif self.parallelthreads > 1 and onlyTrials:
-            print('Parallel implementation (p = {:d}, over trials only).'.format(self.parallelthreads))            
-            connectivity = run_analysis_parallel(data)
+            if verbose:
+                print('Parallel implementation (p = {:d}, over trials only).'.format(self.parallelthreads))            
+                print('Computing posterior response functions...', end='', flush=True)
+            self.connectivity = run_analysis_parallel(data)
         else:      
-            #print('Serial implementation.')
-            connectivity = run_analysis_serial(data)
+            if verbose:
+                print('Computing posterior response functions...', end='', flush=True)
+            self.connectivity = run_analysis_serial(data)
         
-        if show_diagnostics:
-            utility.toc()
-        return connectivity
+        print('done ({:0.2f} seconds).'.format(utility.toc()))
+
+        return self.connectivity
     #
     def get_statistic(self, stat, output_index, input_index):
         stat = self.connectivity_statistics[stat][output_index][input_index]
         return stat.flatten()
     #        
+    def plot(self, ground_truth = None, labels = None, onlyCausal = True, interval = '95', fz = None):
+        (ntrials,p,_,n) = self.connectivity.shape
+        t = self.time_meshgrid["time_range"]  
+        if labels is None:
+            labels = range(p)
+        if onlyCausal:
+            plotrange = range(int(np.floor(n/2)), n)            
+            t = t[plotrange]
+        else:
+            plotrange = range(n)          
+            
+        if fz is None:
+            fz = (12,8)
+        
+        f, axarr = plt.subplots(p, p, figsize=fz)
+        
+        for i in range(0, p):
+            for j in range(0, p):
+                if i != j:
+                    irf = np.mean(self.connectivity[:, i, j, plotrange], axis=0)
+                    
+                    if interval is 'std':
+                        intv = np.std(self.connectivity[:, i, j, plotrange], axis=0)
+                    elif interval is 'se':
+                        intv = np.std(self.connectivity[:, i, j, plotrange], axis=0) / np.sqrt(ntrials)
+                    elif interval is '95':
+                        intv = 1.96 * np.std(self.connectivity[:, i, j, plotrange], axis=0) / np.sqrt(ntrials)
+                                        
+                    axarr[i,j].plot(t, irf, color='green', label='GP CaKe')
+                    if interval is not None:
+                        axarr[i,j].fill_between(t, irf - intv, irf + intv, facecolor='green', alpha=0.2)
+                    axarr[i,j].axis('tight')
+                    axarr[i,j].axvline(x=0.0, linestyle='--', color='black', label='Zero lag')
+                    axarr[i,j].axhline(y=0.0, linestyle=':', color='black')
+                    if ground_truth is not None:
+                        axarr[i,j].plot(t, ground_truth[plotrange, i, j], label='Ground truth', color = 'r')
+                    
+                    axarr[i,j].set_title(u'{:s} \u2192 {:s}'.format(labels[j], labels[i]))
+                    axarr[i,j].set_xlabel('Time lag')
+                    #axarr[i,j].set_ylabel('Connectivity amplitude')
+                else:
+                    axarr[i,j].set_visible(False)
+        f.suptitle('GP CaKe impulse responses')
+        f.tight_layout(rect=[0, 0.03, 1, 0.95])
+        f.show()
+        

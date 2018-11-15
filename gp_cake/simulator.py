@@ -1,6 +1,6 @@
 import numpy as np
 import scipy as sp
-from utility import matrix_division
+from gp_cake import utility
 
 class integroDifferential_simulator(object):
     #
@@ -62,7 +62,7 @@ class integroDifferential_simulator(object):
     #
     def __get_sample(self, block_matrices, number_sources, number_time_points):
         number_points = block_matrices["block_green_matrix"].shape[0]
-        operator = matrix_division(divider = np.identity(number_points) - block_matrices["block_green_matrix"]*block_matrices["block_kernel_matrix"]*block_matrices["block_moving_average_matrix"],
+        operator = utility.matrix_division(divider = np.identity(number_points) - block_matrices["block_green_matrix"]*block_matrices["block_kernel_matrix"]*block_matrices["block_moving_average_matrix"],
                                    divided = block_matrices["block_green_matrix"],
                                    side = "left",
                                    cholesky = "no")
@@ -164,14 +164,14 @@ class integroDifferential_simulator(object):
 
     def conn_function(self,t, connectivity_relaxation_mat, adj_mat, source, target):
         conn_dynamics = self.ground_truth_conn(t, connectivity_relaxation_mat[source, target])
-        return adj_mat[source, target] * conn_dynamics / np.max(conn_dynamics)
+        return adj_mat[source, target] * conn_dynamics #/ np.max(conn_dynamics)
         
     def simulate_network_dynamics(self, 
-                                  ntrials_train, 
-                                  ntrials_test, 
+                                  ntrials, 
                                   params, 
                                   connectivity_relaxation = 1/0.15,
-                                  AR_coefficient          = 0.6):
+                                  AR_coefficient          = 0.6,
+                                  verbose = True):
         adj_mat = params['network']
         time_step = params['time_step']
         time_period = params['time_period']
@@ -191,10 +191,15 @@ class integroDifferential_simulator(object):
                                    "moving_average_time_constants"      : MA_constants,
                                    "relaxation_constants"               : source_relaxation}
 
-        self.run_sampler(number_samples = ntrials_train+ntrials_test)
+
+        if verbose:
+            print('Generating {:d} samples...'.format(ntrials), end='', flush=True)
+            utility.tic()
+        self.run_sampler(number_samples = ntrials)
+        if verbose:
+            print('done ({:0.2f} seconds).'.format(utility.toc()))
         t = self.time_meshgrid["time_range"]
-        trials_train = self.samples[0:ntrials_train]
-        trials_test = self.samples[ntrials_train:]
+        trials = self.samples
         ground_truth = np.zeros((int(time_period / time_step), p, p))
 
         for i in range(0,p):            
@@ -202,7 +207,7 @@ class integroDifferential_simulator(object):
                 if i != j:
                     ground_truth[:,i,j] = self.conn_function(t, connectivity_relaxation_mat, adj_mat, i,j)
         
-        return (trials_train, trials_test, ground_truth)
+        return (trials, ground_truth)
 
     def simulate_spiking_network_dynamics(self, 
                                           ntrials_train, 

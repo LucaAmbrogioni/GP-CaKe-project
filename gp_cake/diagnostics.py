@@ -73,33 +73,63 @@ def plot_samples(samples):
     plt.suptitle('A few selected trials')
     plt.draw()
 #
-def plot_connectivity(ground_truth, connectivity, time_range, t0):
-    ylim_max = 1.5 * np.max(ground_truth)
-    ylim_min = -1.0 * np.max(ground_truth)
-    x0 = np.where(time_range < t0)[0][-1]
-    n = ground_truth.shape[0]
-    plotrange = np.arange(x0, n, 1)
-    (ntrials,p,_,_) = connectivity.shape
-
-    plt.figure(figsize=(12,8))
+   
+    
+def plot_connectivity_empirical(connectivity, time_range):
+    (ntrials,p,_,n) = connectivity.shape
+    #x0 = np.where(time_range < t0)[0][-1]
+    #plotrange = np.arange(x0, n, 1)    
+    
+    f, axarr = plt.subplots(p, p, sharey=True, figsize=(12,8))
+    
     for i in range(0, p):
         for j in range(0, p):
             if i != j:
-                plt.subplot(p, p, i * p + j + 1)
-                plt.plot(time_range[plotrange], ground_truth[plotrange, i, j], label='Ground truth', color='r')
-                ax = plt.gca()
-                mean = np.mean(connectivity[:, i, j, plotrange], axis=0)
-                std = np.std(connectivity[:, i, j, plotrange], axis=0)
+                mean = np.mean(connectivity[:, i, j, :], axis=0)
+                std = np.std(connectivity[:, i, j, :], axis=0)
                 intv = 1.96 * std / np.sqrt(ntrials)
-                plt.plot(time_range[plotrange], mean, color='green', label='GP-CaKe')
-                ax.fill_between(time_range[plotrange], mean - intv, mean + intv, facecolor='green', alpha=0.2)
-                ax.axis('tight')
-                ax.axvline(x=0.0, linestyle='--', color='black', label='Zero lag')
-                ax.set_xlim([t0, 2.0])
-                ax.set_ylim([ylim_min, ylim_max])
-                ax.set_xlabel('Time lag')
-                ax.set_ylabel('Connectivity amplitude')
-    plt.legend(bbox_to_anchor=(1.05, 0), loc='upper center', borderaxespad=0.)
-    plt.suptitle('Mean connectivity')
-    plt.draw()    
+                axarr[i,j].plot(time_range, mean, color='green', label='GP-CaKe')
+                axarr[i,j].fill_between(time_range, mean - intv, mean + intv, facecolor='green', alpha=0.2)
+                axarr[i,j].axis('tight')
+                axarr[i,j].axvline(x=0.0, linestyle='--', color='black', label='Zero lag')
+                axarr[i,j].axhline(y=0.0, linestyle=':', color='black')
+                #axarr[i,j].set_xlim([t0, 2.0])
+                axarr[i,j].set_xlabel('Time lag')
+                axarr[i,j].set_ylabel('Connectivity amplitude')
+    f.legend(bbox_to_anchor=(1.05, 0), loc='upper center', borderaxespad=0.)
+    f.suptitle('Impulse response')
+
+#
+def plot_connectivity(ground_truth, connectivity, time_range, t0):
+    if ground_truth == []:
+        plot_connectivity_empirical(connectivity, time_range, t0)
+    else:
+        ylim_max = 1.5 * np.max(ground_truth)
+        ylim_min = -1.0 * np.max(ground_truth)
+        x0 = np.where(time_range < t0)[0][-1]
+        n = ground_truth.shape[0]
+        plotrange = np.arange(x0, n, 1)
+        (ntrials,p,_,_) = connectivity.shape
+    
+        plt.figure(figsize=(12,8))
+        for i in range(0, p):
+            for j in range(0, p):
+                if i != j:
+                    plt.subplot(p, p, i * p + j + 1)
+                    plt.plot(time_range[plotrange], ground_truth[plotrange, i, j], label='Ground truth', color='r')
+                    ax = plt.gca()
+                    mean = np.mean(connectivity[:, i, j, plotrange], axis=0)
+                    std = np.std(connectivity[:, i, j, plotrange], axis=0)
+                    intv = 1.96 * std / np.sqrt(ntrials)
+                    plt.plot(time_range[plotrange], mean, color='green', label='GP-CaKe')
+                    ax.fill_between(time_range[plotrange], mean - intv, mean + intv, facecolor='green', alpha=0.2)
+                    ax.axis('tight')
+                    ax.axvline(x=0.0, linestyle='--', color='black', label='Zero lag')
+                    ax.set_xlim([t0, 2.0])
+                    ax.set_ylim([ylim_min, ylim_max])
+                    ax.set_xlabel('Time lag')
+                    ax.set_ylabel('Connectivity amplitude')
+        plt.legend(bbox_to_anchor=(1.05, 0), loc='upper center', borderaxespad=0.)
+        plt.suptitle('Impulse response')
+        plt.draw()    
     

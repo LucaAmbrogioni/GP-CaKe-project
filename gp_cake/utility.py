@@ -43,6 +43,10 @@ def step(x, step_point, side):
 def is_pos_def(x):
     return np.all(np.linalg.eigvals(x)>0)
 
+def safe_exp_norm(x):        
+    xmax = np.max(x)        
+    return np.exp(x-xmax) / np.sum(np.exp(x - xmax))
+
 def nested_zip(*list_matrices):
     zipped_matrix = []
     for first_index,_ in enumerate(list_matrices[0]):
@@ -84,9 +88,12 @@ def tic():
     global startTime_for_tictoc
     startTime_for_tictoc = time.time()
 
-def toc():
+def toc(verbose = False):
     if 'startTime_for_tictoc' in globals():
-        print("Elapsed time is " + str(round(time.time() - startTime_for_tictoc,2)) + " seconds.")
+        elapsed = round(time.time() - startTime_for_tictoc,2)
+        if verbose:
+            print("Elapsed time is " + str(elapsed) + " seconds.")
+        return elapsed
     else:
         print("Toc: start time not set")
 
