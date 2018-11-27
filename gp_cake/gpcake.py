@@ -950,6 +950,7 @@ class gpcake(object):
         f.show()
     #
     def plot_kernel(self):
+        # TODO
         print("Todo")
 
     def plot_cirf_samples(self, nsamples):
@@ -964,7 +965,6 @@ class gpcake(object):
         for i in range(nsamples):
             u = np.asmatrix(np.random.normal(loc = 0, scale = 1.0, size = n))
             sample_spectral = A * S * np.transpose(u)
-            # todo: add flattening, fft's are not in the right dimension
             sample_temporal = np.real(np.fft.fftshift(np.fft.ifft(np.fft.ifftshift(sample_spectral, axes=0), axis=0), axes=0))
             plt.plot(t, sample_temporal)
         plt.axvline(x=0, color='black', linestyle='dashed')
