@@ -10,6 +10,7 @@ from gp_cake import utility
 from gp_cake import diagnostics 
 from itertools import product
 import matplotlib.pyplot as plt
+from matplotlib.pyplot import draw, ion
 
 class gpcake(object):
     #
@@ -902,12 +903,12 @@ class gpcake(object):
         stat = self.connectivity_statistics[stat][output_index][input_index]
         return stat.flatten()
     #        
-    def plot(self, ground_truth = None, labels = None, onlyCausal = True, interval = '95', fz = None):
+    def plot(self, ground_truth = None, labels = None, onlycausal = True, interval = '95', fz = None):
         (ntrials,p,_,n) = self.connectivity.shape
         t = self.time_meshgrid["time_range"]  
         if labels is None:
             labels = range(p)
-        if onlyCausal:
+        if onlycausal:
             plotrange = range(int(np.floor(n/2)), n)            
             t = t[plotrange]
         else:
@@ -947,4 +948,26 @@ class gpcake(object):
         f.suptitle('GP CaKe impulse responses')
         f.tight_layout(rect=[0, 0.03, 1, 0.95])
         f.show()
-        
+    #
+    def plot_kernel(self):
+        print("Todo")
+
+    def plot_cirf_samples(self, nsamples):
+        print('Plotting samples from prior')
+        K = self.__get_covariance_matrices()[1][0]
+        A, S, _ = np.linalg.svd(K, full_matrices=True)
+        S = np.diag(np.sqrt(S))
+
+        t = self.time_meshgrid['time_range']
+        n = len(t)
+
+        for i in range(nsamples):
+            u = np.asmatrix(np.random.normal(loc = 0, scale = 1.0, size = n))
+            sample_spectral = A * S * np.transpose(u)
+            # todo: add flattening, fft's are not in the right dimension
+            sample_temporal = np.real(np.fft.fftshift(np.fft.ifft(np.fft.ifftshift(sample_spectral, axes=0), axis=0), axes=0))
+            plt.plot(t, sample_temporal)
+        plt.axvline(x=0, color='black', linestyle='dashed')
+        plt.title('{:d} samples from the causal Gaussian process'.format(nsamples))
+        plt.autoscale(enable=True, axis='x', tight=True)
+        plt.show()
